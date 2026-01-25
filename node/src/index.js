@@ -65,6 +65,63 @@ async function getContext() {
   return contextPromise;
 }
 
+/**
+ * Extract HTML metadata from the page
+ * @param {import('playwright').Page} page - The Playwright page object
+ * @returns {Promise<Object>} Metadata object with title, description, OG tags, etc.
+ */
+async function extractMetadata(page) {
+  return page.evaluate(() => {
+    const getMeta = (name) => {
+      const meta = document.querySelector(
+        `meta[name="${name}"], meta[property="${name}"]`,
+      );
+      return meta?.getAttribute("content") || null;
+    };
+
+    const getLink = (rel) => {
+      const link = document.querySelector(`link[rel="${rel}"]`);
+      return link?.getAttribute("href") || null;
+    };
+
+    return {
+      title: document.title || null,
+      description: getMeta("description") || getMeta("og:description") || null,
+      keywords: getMeta("keywords"),
+      author: getMeta("author"),
+      og_title: getMeta("og:title"),
+      og_description: getMeta("og:description"),
+      og_image: getMeta("og:image"),
+      og_url: getMeta("og:url"),
+      og_type: getMeta("og:type"),
+      twitter_card: getMeta("twitter:card"),
+      twitter_title: getMeta("twitter:title"),
+      twitter_description: getMeta("twitter:description"),
+      twitter_image: getMeta("twitter:image"),
+      canonical: getLink("canonical"),
+      lang: document.documentElement.lang || null,
+      charset: document.characterSet || null,
+    };
+  });
+}
+
+/**
+ * Extract links from the page.
+ * @param {import('playwright').Page} page - The Playwright page object
+ * @returns {Promise<Array>} Array of link objects
+ */
+async function extractLinks(page) {
+  return page.evaluate(() => {
+    const links = Array.from(document.querySelectorAll("a[href]"));
+    return links.map((link) => ({
+      url: link.href,
+      text: (link.textContent || "").trim(),
+      title: link.getAttribute("title") || null,
+      rel: link.getAttribute("rel") || null,
+    }));
+  });
+}
+
 async function handleCrawl(req, res) {
   try {
     const body = await readJson(req);
@@ -105,6 +162,8 @@ async function handleCrawl(req, res) {
       const html = await page.content();
       const finalUrl = page.url();
       const status = response ? response.status() : null;
+      const htmlMetadata = await extractMetadata(page);
+      const links = await extractLinks(page);
 
       // eslint-disable-next-line no-console
       console.log(
@@ -117,10 +176,11 @@ async function handleCrawl(req, res) {
         html,
         text: "",
         markdown: "",
-        links: [],
+        links,
         metadata: {
           status,
           final_url: finalUrl,
+          ...htmlMetadata,
         },
       });
     } finally {

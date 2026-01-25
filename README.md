@@ -152,7 +152,77 @@ result.html      # String: Raw HTML content from page
 result.text      # String: Plain text (coming soon)
 result.markdown  # String: Markdown conversion (coming soon)
 result.links     # Array: Extracted links (coming soon)
-result.metadata  # Hash: { status: 200, final_url: "..." }
+result.metadata  # Hash: Comprehensive metadata (see below)
+```
+
+#### Metadata Fields
+
+The `metadata` hash includes HTTP and HTML metadata:
+
+```ruby
+result.metadata
+# => {
+#   "status" => 200,                 # HTTP status code
+#   "final_url" => "https://...",    # Final URL after redirects
+#   "title" => "Page Title",         # <title> tag
+#   "description" => "...",          # Meta description
+#   "keywords" => "ruby, web",       # Meta keywords
+#   "author" => "Author Name",       # Meta author
+#   "og_title" => "...",             # Open Graph title
+#   "og_description" => "...",       # Open Graph description
+#   "og_image" => "https://...",     # Open Graph image
+#   "og_url" => "https://...",       # Open Graph URL
+#   "og_type" => "website",          # Open Graph type
+#   "twitter_card" => "summary",     # Twitter card type
+#   "twitter_title" => "...",        # Twitter title
+#   "twitter_description" => "...",  # Twitter description
+#   "twitter_image" => "https://...",# Twitter image
+#   "canonical" => "https://...",    # Canonical URL
+#   "lang" => "en",                  # Page language
+#   "charset" => "UTF-8"             # Character encoding
+# }
+```
+
+Note: All HTML metadata fields may be `null` if not present on the page.
+
+### Error Handling
+
+RubyCrawl provides specific exception classes for different error scenarios:
+
+```ruby
+begin
+  result = RubyCrawl.crawl(url)
+rescue RubyCrawl::ConfigurationError => e
+  # Invalid URL or configuration
+  puts "Configuration error: #{e.message}"
+rescue RubyCrawl::TimeoutError => e
+  # Page load timeout or network timeout
+  puts "Timeout: #{e.message}"
+rescue RubyCrawl::NavigationError => e
+  # Page navigation failed (404, DNS error, SSL error, etc.)
+  puts "Navigation failed: #{e.message}"
+rescue RubyCrawl::ServiceError => e
+  # Node service unavailable or crashed
+  puts "Service error: #{e.message}"
+rescue RubyCrawl::Error => e
+  # Catch-all for any RubyCrawl error
+  puts "Crawl error: #{e.message}"
+end
+```
+
+**Exception Hierarchy:**
+- `RubyCrawl::Error` (base class)
+  - `RubyCrawl::ConfigurationError` - Invalid URL or configuration
+  - `RubyCrawl::TimeoutError` - Timeout during crawl
+  - `RubyCrawl::NavigationError` - Page navigation failed
+  - `RubyCrawl::ServiceError` - Node service issues
+
+**Automatic Retry:** RubyCrawl automatically retries transient failures (service errors, timeouts) up to 3 times with exponential backoff (2s, 4s, 8s). Configure with:
+
+```ruby
+RubyCrawl.configure(max_retries: 5)
+# or per-request
+RubyCrawl.crawl(url, retries: 1)  # Disable retry
 ```
 
 ## Rails Integration

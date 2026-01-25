@@ -1,14 +1,15 @@
 # frozen_string_literal: true
 
-require 'json'
-require 'net/http'
-require 'uri'
-
 require_relative 'rubycrawl/version'
+require_relative 'rubycrawl/errors'
+require_relative 'rubycrawl/helpers'
+require_relative 'rubycrawl/service_client'
 require_relative 'rubycrawl/railtie' if defined?(Rails)
 
 # RubyCrawl provides a simple interface for crawling pages via a local Playwright service.
 class RubyCrawl
+  include Helpers
+
   DEFAULT_HOST = '127.0.0.1'
   DEFAULT_PORT = 3344
 
@@ -29,6 +30,45 @@ class RubyCrawl
   end
 
   def initialize(**options)
+    load_options(options)
+    build_service_client
+  end
+
+  def crawl(url, wait_until: @wait_until, block_resources: @block_resources, retries: @max_retries)
+    validate_url!(url)
+    @service_client.ensure_running
+    with_retries(retries) do
+      payload = build_payload(url, wait_until, block_resources)
+      response = @service_client.post_json('/crawl', payload)
+      raise_node_error!(response)
+      build_result(response)
+    end
+  end
+
+  private
+
+  def raise_node_error!(response)
+    return unless response.is_a?(Hash) && response['error']
+
+    error_code = response['error']
+    error_message = response['message'] || error_code
+    raise error_class_for(error_code), error_message_for(error_code, error_message)
+  end
+
+  def with_retries(retries)
+    attempt = 0
+    begin
+      yield
+    rescue ServiceError, TimeoutError => e
+      attempt += 1
+      raise unless attempt < retries
+
+      retry_with_backoff(attempt, retries, e)
+      retry
+    end
+  end
+
+  def load_options(options)
     @host = options.fetch(:host, DEFAULT_HOST)
     @port = Integer(options.fetch(:port, DEFAULT_PORT))
     @node_dir = options.fetch(:node_dir, default_node_dir)
@@ -36,94 +76,23 @@ class RubyCrawl
     @node_log = options.fetch(:node_log, ENV.fetch('RUBYCRAWL_NODE_LOG', nil))
     @wait_until = options.fetch(:wait_until, nil)
     @block_resources = options.fetch(:block_resources, nil)
-    @node_pid = nil
+    @max_retries = options.fetch(:max_retries, 3)
   end
 
-  def crawl(url, wait_until: @wait_until, block_resources: @block_resources)
-    ensure_service_running
-    payload = build_payload(url, wait_until, block_resources)
-    response = post_json('/crawl', payload)
-    raise_node_error!(response)
-    build_result(response)
-  end
-
-  private
-
-  def build_payload(url, wait_until, block_resources)
-    payload = { url: url }
-    payload[:wait_until] = wait_until if wait_until
-    payload[:block_resources] = block_resources unless block_resources.nil?
-    payload
-  end
-
-  def raise_node_error!(response)
-    return unless response.is_a?(Hash) && response['error']
-
-    message = response['message'] ? " (#{response['message']})" : ''
-    raise "rubycrawl node error: #{response['error']}#{message}"
-  end
-
-  def build_result(response)
-    Result.new(
-      text: response['text'].to_s,
-      html: response['html'].to_s,
-      links: Array(response['links']),
-      metadata: response['metadata'].is_a?(Hash) ? response['metadata'] : {},
-      markdown: response['markdown'].to_s
+  def build_service_client
+    @service_client = ServiceClient.new(
+      host: @host,
+      port: @port,
+      node_dir: @node_dir,
+      node_bin: @node_bin,
+      node_log: @node_log
     )
   end
 
-  def ensure_service_running
-    return if healthy?
-
-    start_service
-    wait_until_healthy
-  end
-
-  def start_service
-    raise "rubycrawl node service directory not found: #{@node_dir}" unless Dir.exist?(@node_dir)
-
-    env = { 'RUBYCRAWL_NODE_PORT' => @port.to_s }
-    out = @node_log ? File.open(@node_log, 'a') : File::NULL
-    err = @node_log ? out : File::NULL
-    @node_pid = Process.spawn(env, @node_bin, 'src/index.js', chdir: @node_dir, out: out, err: err)
-    Process.detach(@node_pid)
-  end
-
-  def wait_until_healthy(timeout: 5)
-    deadline = Time.now + timeout
-    until Time.now > deadline
-      return true if healthy?
-
-      sleep 0.2
-    end
-
-    raise 'rubycrawl node service failed to start'
-  end
-
-  def healthy?
-    uri = URI("http://#{@host}:#{@port}/health")
-    response = Net::HTTP.start(uri.host, uri.port, open_timeout: 1, read_timeout: 1) do |http|
-      http.get(uri.request_uri)
-    end
-    response.is_a?(Net::HTTPSuccess)
-  rescue StandardError
-    false
-  end
-
-  def post_json(path, body)
-    uri = URI("http://#{@host}:#{@port}#{path}")
-    request = Net::HTTP::Post.new(uri)
-    request['Content-Type'] = 'application/json'
-    request.body = JSON.generate(body)
-
-    response = Net::HTTP.start(uri.host, uri.port, open_timeout: 5, read_timeout: 30) do |http|
-      http.request(request)
-    end
-
-    JSON.parse(response.body)
-  rescue JSON::ParserError
-    { 'error' => 'invalid_json_response' }
+  def retry_with_backoff(attempt, retries, error)
+    backoff_seconds = 2**attempt
+    warn "[rubycrawl] Retry #{attempt}/#{retries - 1} after #{backoff_seconds}s: #{error.message}"
+    sleep(backoff_seconds)
   end
 
   def default_node_dir
