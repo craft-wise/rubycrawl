@@ -4,6 +4,10 @@ require_relative 'rubycrawl/version'
 require_relative 'rubycrawl/errors'
 require_relative 'rubycrawl/helpers'
 require_relative 'rubycrawl/service_client'
+require_relative 'rubycrawl/url_normalizer'
+require_relative 'rubycrawl/markdown_converter'
+require_relative 'rubycrawl/result'
+require_relative 'rubycrawl/site_crawler'
 require_relative 'rubycrawl/railtie' if defined?(Rails)
 
 # RubyCrawl provides a simple interface for crawling pages via a local Playwright service.
@@ -13,8 +17,6 @@ class RubyCrawl
   DEFAULT_HOST = '127.0.0.1'
   DEFAULT_PORT = 3344
 
-  Result = Struct.new(:text, :html, :links, :metadata, :markdown, keyword_init: true)
-
   class << self
     def client
       @client ||= new
@@ -22,6 +24,25 @@ class RubyCrawl
 
     def crawl(url, **options)
       client.crawl(url, **options)
+    end
+
+    # Crawl multiple pages starting from a URL, following links.
+    # Yields each page result to the block as it is crawled.
+    #
+    # @param url [String] The starting URL
+    # @param max_pages [Integer] Maximum number of pages to crawl (default: 50)
+    # @param max_depth [Integer] Maximum link depth from start URL (default: 3)
+    # @param same_host_only [Boolean] Only follow links on the same host (default: true)
+    # @yield [page] Yields each page result as it is crawled
+    # @yieldparam page [SiteCrawler::PageResult] The crawled page result
+    # @return [Integer] Number of pages crawled
+    #
+    # @example Save pages to database
+    #   RubyCrawl.crawl_site("https://example.com", max_pages: 100) do |page|
+    #     Page.create!(url: page.url, html: page.html, depth: page.depth)
+    #   end
+    def crawl_site(url, ...)
+      client.crawl_site(url, ...)
     end
 
     def configure(**options)
@@ -43,6 +64,15 @@ class RubyCrawl
       raise_node_error!(response)
       build_result(response)
     end
+  end
+
+  # Crawl multiple pages starting from a URL, following links.
+  # @see RubyCrawl.crawl_site
+  def crawl_site(url, **options, &block)
+    @service_client.ensure_running
+    crawler_options = build_crawler_options(options)
+    crawler = SiteCrawler.new(self, crawler_options)
+    crawler.crawl(url, &block)
   end
 
   private
@@ -93,6 +123,16 @@ class RubyCrawl
     backoff_seconds = 2**attempt
     warn "[rubycrawl] Retry #{attempt}/#{retries - 1} after #{backoff_seconds}s: #{error.message}"
     sleep(backoff_seconds)
+  end
+
+  def build_crawler_options(options)
+    {
+      max_pages: options.fetch(:max_pages, 50),
+      max_depth: options.fetch(:max_depth, 3),
+      same_host_only: options.fetch(:same_host_only, true),
+      wait_until: options.fetch(:wait_until, @wait_until),
+      block_resources: options.fetch(:block_resources, @block_resources)
+    }
   end
 
   def default_node_dir

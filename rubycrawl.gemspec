@@ -22,5 +22,8 @@ Gem::Specification.new do |spec|
   spec.executables = []
   spec.require_paths = ['lib']
 
+  # For HTML to Markdown conversion
+  spec.add_dependency 'reverse_markdown', '~> 2.1'
+
   spec.metadata['rubygems_mfa_required'] = 'true'
 end

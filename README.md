@@ -14,7 +14,8 @@ RubyCrawl provides accurate, JavaScript-enabled web scraping using Playwright's 
 - **Simple API**: Clean, minimal Ruby interface — zero Playwright knowledge required
 - **Resource optimization**: Built-in resource blocking for faster crawls
 - **Auto-managed browsers**: Browser process reuse and automatic lifecycle management
-- **HTML extraction**: Currently focused on HTML content (text, markdown coming soon)
+- **Content extraction**: HTML, links, and Markdown conversion
+- **Multi-page crawling**: BFS crawler with depth limits and deduplication
 - **Rails integration**: First-class Rails support with generators and initializers
 
 ## Table of Contents
@@ -23,6 +24,7 @@ RubyCrawl provides accurate, JavaScript-enabled web scraping using Playwright's 
 - [Quick Start](#quick-start)
 - [Usage](#usage)
   - [Basic Crawling](#basic-crawling)
+  - [Multi-Page Crawling](#multi-page-crawling)
   - [Configuration](#configuration)
   - [Result Object](#result-object)
 - [Rails Integration](#rails-integration)
@@ -76,6 +78,8 @@ result = RubyCrawl.crawl("https://example.com")
 
 # Access extracted content
 puts result.html      # Raw HTML content
+puts result.markdown  # Converted to Markdown
+puts result.links     # Extracted links from the page
 puts result.metadata  # Status code, final URL, etc.
 ```
 
@@ -90,10 +94,53 @@ result = RubyCrawl.crawl("https://example.com")
 
 # Access the results
 result.html      # => "<html>...</html>"
-result.metadata  # => { status: 200, final_url: "https://example.com" }
-result.links     # => [] (coming soon)
+result.markdown  # => "# Example Domain\n\nThis domain is..." (lazy-loaded)
+result.links     # => [{ "url" => "https://...", "text" => "More info" }, ...]
+result.metadata  # => { "status" => 200, "final_url" => "https://example.com" }
 result.text      # => "" (coming soon)
-result.markdown  # => "" (coming soon)
+```
+
+### Multi-Page Crawling
+
+Crawl an entire site following links with BFS (breadth-first search):
+
+```ruby
+# Crawl up to 100 pages, max 3 links deep
+RubyCrawl.crawl_site("https://example.com", max_pages: 100, max_depth: 3) do |page|
+  # Each page is yielded as it's crawled (streaming)
+  puts "Crawled: #{page.url} (depth: #{page.depth})"
+  
+  # Save to database
+  Page.create!(
+    url: page.url,
+    html: page.html,
+    markdown: page.markdown,
+    depth: page.depth
+  )
+end
+```
+
+#### Multi-Page Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `max_pages` | 50 | Maximum number of pages to crawl |
+| `max_depth` | 3 | Maximum link depth from start URL |
+| `same_host_only` | true | Only follow links on the same domain |
+| `wait_until` | inherited | Page load strategy |
+| `block_resources` | inherited | Block images/fonts/CSS |
+
+#### Page Result Object
+
+The block receives a `PageResult` with:
+
+```ruby
+page.url       # String: Final URL after redirects
+page.html      # String: Full HTML content  
+page.markdown  # String: Lazy-converted Markdown
+page.links     # Array: URLs extracted from page
+page.metadata  # Hash: HTTP status, final URL, etc.
+page.depth     # Integer: Link depth from start URL
 ```
 
 ### Configuration
@@ -143,17 +190,41 @@ result = RubyCrawl.crawl(
 
 ### Result Object
 
-The crawl result is a `RubyCrawl::Result` struct with these attributes:
+The crawl result is a `RubyCrawl::Result` object with these attributes:
 
 ```ruby
 result = RubyCrawl.crawl("https://example.com")
 
 result.html      # String: Raw HTML content from page
+result.markdown  # String: Markdown conversion (lazy-loaded on first access)
+result.links     # Array: Extracted links with url and text
 result.text      # String: Plain text (coming soon)
-result.markdown  # String: Markdown conversion (coming soon)
-result.links     # Array: Extracted links (coming soon)
 result.metadata  # Hash: Comprehensive metadata (see below)
 ```
+
+#### Links Format
+
+```ruby
+result.links
+# => [
+#   { "url" => "https://example.com/about", "text" => "About Us" },
+#   { "url" => "https://example.com/contact", "text" => "Contact" },
+#   ...
+# ]
+```
+
+#### Markdown Conversion
+
+Markdown is **lazy-loaded** — conversion only happens when you access `.markdown`:
+
+```ruby
+result = RubyCrawl.crawl(url)
+result.html       # ✅ No overhead
+result.markdown   # ⬅️ Conversion happens here (first call only)
+result.markdown   # ✅ Cached, instant
+```
+
+Uses [reverse_markdown](https://github.com/xijo/reverse_markdown) with GitHub-flavored output.
 
 #### Metadata Fields
 
@@ -453,19 +524,22 @@ rubycrawl/
 ### Current (v0.1.0)
 
 - [x] HTML extraction
+- [x] Link extraction
+- [x] Markdown conversion (lazy-loaded)
+- [x] Multi-page crawling with BFS
+- [x] URL normalization and deduplication
 - [x] Basic metadata (status, final URL)
 - [x] Resource blocking
 - [x] Rails integration
 
 ### Coming Soon
 
-- [ ] Link extraction
 - [ ] Plain text extraction
-- [ ] Markdown conversion
 - [ ] Screenshot capture
 - [ ] Custom JavaScript execution
 - [ ] Session/cookie support
 - [ ] Proxy support
+- [ ] Robots.txt support
 
 ## Contributing
 
@@ -485,7 +559,9 @@ Contributions are welcome! Please read our [contribution guidelines](.github/cop
 | Browser automation  | Playwright        | Playwright       |
 | Language            | Python            | Ruby             |
 | LLM extraction      | ✅                | Planned          |
-| Markdown extraction | ✅                | Planned          |
+| Markdown extraction | ✅                | ✅               |
+| Link extraction     | ✅                | ✅               |
+| Multi-page crawling | ✅                | ✅               |
 | Rails integration   | N/A               | ✅               |
 | Resource blocking   | ✅                | ✅               |
 | Session management  | ✅                | Planned          |

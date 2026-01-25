@@ -33,8 +33,7 @@ class RubyCrawl
         text: response['text'].to_s,
         html: response['html'].to_s,
         links: Array(response['links']),
-        metadata: response['metadata'].is_a?(Hash) ? response['metadata'] : {},
-        markdown: response['markdown'].to_s
+        metadata: response['metadata'].is_a?(Hash) ? response['metadata'] : {}
       )
     end
 
