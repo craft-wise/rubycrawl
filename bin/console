@@ -1,9 +1,9 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-require "bundler/setup"
-require "rubycrawl"
+require 'bundler/setup'
+require 'rubycrawl'
 
-require "irb"
+require 'irb'
 ARGV.clear
 IRB.start
