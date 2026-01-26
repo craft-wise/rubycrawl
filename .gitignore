@@ -5,3 +5,6 @@
 /pkg
 /tmp
 /Gemfile.lock
+# Node dependencies
+node_modules/
+node/

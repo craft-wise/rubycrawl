@@ -15,7 +15,7 @@ Gem::Specification.new do |spec|
 
   spec.required_ruby_version = '>= 3.0'
 
-  spec.files = Dir.glob('{bin,lib,spec,node}/**/*', File::FNM_DOTMATCH).reject { |f| File.directory?(f) }
+  spec.files = Dir.glob('{lib}/**/*', File::FNM_DOTMATCH).reject { |f| File.directory?(f) }
   spec.files += %w[README.md LICENSE Gemfile Rakefile rubycrawl.gemspec .rspec]
 
   spec.bindir = 'bin'
