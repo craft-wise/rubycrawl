@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-**rubycrawl** is an open-source, production-ready web crawler for Ruby that uses Playwright for browser automation. It's inspired by [crawl4ai](https://github.com/unclecode/crawl4ai) (Python) but designed idiomatically for Ruby with first-class Rails support.
+**rubycrawl** is an open-source, production-ready web crawler for Ruby that uses Playwright for browser automation. Designed idiomatically for Ruby with first-class Rails support, it brings the power of modern browser automation to the Ruby ecosystem.
 
 ### Key Characteristics
 
@@ -43,6 +43,15 @@ Chromium Browser (managed by Playwright)
 3. **Check the Rails integration** ([lib/rubycrawl/railtie.rb](lib/rubycrawl/railtie.rb)):
    - Rake tasks for installation
    - Initializer generation
+
+4. **Core modules** (lib/rubycrawl/):
+   - `errors.rb` — Custom exception hierarchy (Error, ServiceError, NavigationError, TimeoutError, ConfigurationError)
+   - `helpers.rb` — URL validation, payload building, error class mapping
+   - `service_client.rb` — Node service lifecycle (start, health check) and HTTP communication
+   - `result.rb` — Result object with lazy markdown conversion
+   - `url_normalizer.rb` — URL normalization, deduplication, tracking param removal
+   - `markdown_converter.rb` — HTML to Markdown conversion using reverse_markdown
+   - `site_crawler.rb` — BFS multi-page crawler with depth limits
 
 ### Making Changes
 
@@ -120,26 +129,43 @@ end
 
 #### Adding Content Extraction Features
 
-Currently, we only extract HTML. To add text/markdown/links:
+We extract HTML, links, and metadata. Links and metadata are extracted in Node.js:
+
+**Current implementation:**
+- HTML extraction: `page.content()`
+- Link extraction: `extractLinks(page)` — returns array of `{url, text, title, rel}`
+- Metadata extraction: `extractMetadata(page)` — returns OG tags, Twitter cards, title, description, etc.
+- Markdown conversion: Done in Ruby using `reverse_markdown` gem (lazy-loaded)
+
+**To add new features (e.g., plain text):**
 
 1. **Implement in Node first** (faster iteration):
    ```javascript
-   const text = await page.textContent('body');
+   async function extractText(page) {
+     return page.evaluate(() => document.body.innerText);
+   }
+
+   // In handleCrawl:
+   const text = await extractText(page);
    return json(res, 200, {
      ok: true,
-     html: await page.content(),
-     text: text,  // New field
+     html,
+     text,  // Now populated
+     links,
      // ...
    });
    ```
 
-2. **Update Ruby Result struct**:
+2. **Update Ruby Result class** (lib/rubycrawl/result.rb):
    ```ruby
-   Result.new(
-     html: response["html"].to_s,
-     text: response["text"].to_s,  # Now populated
-     # ...
-   )
+   class Result
+     attr_reader :text, :html, :links, :metadata
+
+     def initialize(text:, html:, links:, metadata:)
+       @text = text  # Now populated from Node
+       # ...
+     end
+   end
    ```
 
 3. **Update tests and docs**
@@ -199,19 +225,25 @@ When reviewing or writing code:
 ### What Works
 
 - ✅ HTML extraction
-- ✅ Basic metadata (status code, final URL)
+- ✅ Link extraction with url, text, title, rel attributes
+- ✅ Markdown conversion (lazy-loaded with reverse_markdown)
+- ✅ Multi-page crawling with BFS algorithm
+- ✅ URL normalization and deduplication
+- ✅ HTML metadata (status, final URL, OG tags, Twitter cards, etc.)
 - ✅ Resource blocking for performance
 - ✅ Auto-start Node service
+- ✅ Custom exception hierarchy
+- ✅ Automatic retry with exponential backoff
 - ✅ Rails integration and generators
 - ✅ Health checks
 
 ### What's Coming (Roadmap)
 
 **v0.2.0** (Next):
-- Link extraction
 - Plain text extraction
-- Markdown conversion
 - Screenshot capture
+- Robots.txt support
+- Rate limiting for multi-page crawls
 
 **v0.3.0** (Future):
 - Interactive crawling (click, scroll, fill forms)
@@ -332,26 +364,33 @@ Make decisions yourself when:
 ```
 rubycrawl/
 ├── lib/
-│   ├── rubycrawl.rb              # Main gem, public API
-│   ├── rubycrawl/
-│   │   ├── version.rb           # Gem version (SemVer)
-│   │   ├── railtie.rb           # Rails integration
-│   │   └── tasks/
-│   │       └── install.rake     # `rake rubycrawl:install`
+│   ├── rubycrawl.rb                  # Main gem, public API, orchestration
+│   └── rubycrawl/
+│       ├── version.rb                # Gem version (SemVer)
+│       ├── errors.rb                 # Custom exception hierarchy
+│       ├── helpers.rb                # Validation, payload building, error mapping
+│       ├── service_client.rb         # Node service lifecycle & HTTP client
+│       ├── url_normalizer.rb         # URL normalization & deduplication
+│       ├── markdown_converter.rb     # HTML → Markdown conversion
+│       ├── result.rb                 # Result object with lazy markdown
+│       ├── site_crawler.rb           # BFS multi-page crawler
+│       ├── railtie.rb                # Rails integration
+│       └── tasks/
+│           └── install.rake          # `rake rubycrawl:install`
 ├── node/
 │   ├── src/
-│   │   └── index.js             # HTTP service + Playwright
-│   ├── package.json             # Node dependencies
-│   └── README.md                # Node service docs
+│   │   └── index.js                  # HTTP service + Playwright
+│   ├── package.json                  # Node dependencies
+│   └── README.md                     # Node service docs
 ├── spec/
-│   ├── rubycrawl_spec.rb         # RSpec tests
+│   ├── rubycrawl_spec.rb             # RSpec tests
 │   └── spec_helper.rb
 ├── .github/
-│   └── copilot-instructions.md  # GitHub Copilot guide
-├── CLAUDE.md                    # This file
-├── README.md                    # User-facing documentation
-├── rubycrawl.gemspec             # Gem specification
-└── Rakefile                     # Rake tasks
+│   └── copilot-instructions.md       # GitHub Copilot guide
+├── CLAUDE.md                         # This file
+├── README.md                         # User-facing documentation
+├── rubycrawl.gemspec                 # Gem specification
+└── Rakefile                          # Rake tasks
 ```
 
 ## Quick Reference Commands

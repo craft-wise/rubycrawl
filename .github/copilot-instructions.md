@@ -4,17 +4,17 @@
 
 Open-source, Playwright-based web crawler for Ruby designed for production use in Rails applications and Ruby projects.
 
-## Inspiration
+## Vision
 
-Inspired by [crawl4ai](https://github.com/unclecode/crawl4ai) (Python), but designed idiomatically for Ruby with first-class Rails support and production-ready architecture.
+Bring production-grade, Playwright-powered web crawling to the Ruby ecosystem with a clean, minimal API that hides complexity while maintaining flexibility for advanced use cases.
 
 ## Mission Statement
 
-Bring crawl4ai-level accuracy and reliability to the Ruby ecosystem with a clean, minimal API that hides complexity while maintaining flexibility for advanced use cases.
+Provide Ruby developers with a reliable, accurate web crawler that handles modern JavaScript-heavy websites with the same ease and elegance they expect from Ruby tools. Make browser automation accessible without requiring Playwright or Node.js expertise.
 
 ## High-level Goals
 
-1. **Accuracy First**: Provide crawl4ai-level accuracy using Playwright's battle-tested browser automation
+1. **Accuracy First**: Provide production-grade accuracy using Playwright's battle-tested browser automation
 2. **Clean Ruby API**: Expose a minimal, idiomatic Ruby interface that feels natural to Ruby developers
 3. **Hide Complexity**: Abstract away Node.js and Playwright internals from end users
 4. **Production-Ready**: Design for stability, observability, and deployment in real-world environments
@@ -93,43 +93,92 @@ RubyCrawl uses a **dual-process architecture** that separates concerns between R
 
 ## Ruby Layer Responsibilities
 
-The Ruby gem (`lib/rubycrawl.rb`) is the **public interface** and **orchestration layer**:
+The Ruby gem is the **public interface** and **orchestration layer**, now organized into focused modules:
 
-### Core Responsibilities
+### Core Components
+
+**Main Entry Point** (`lib/rubycrawl.rb`):
+- Public API: `RubyCrawl.crawl(url, **options)` and `RubyCrawl.crawl_site(url, **options, &block)`
+- Configuration management via `RubyCrawl.configure(**defaults)`
+- Orchestrates service client, validation, retry logic, and result building
+
+**Supporting Modules** (`lib/rubycrawl/`):
+
+1. **errors.rb** — Custom exception hierarchy
+   - `Error` (base class)
+   - `ServiceError` — Node service failures
+   - `NavigationError` — Page navigation failures
+   - `TimeoutError` — Timeout during crawl or HTTP request
+   - `ConfigurationError` — Invalid URL or config
+
+2. **helpers.rb** — Validation and error handling utilities
+   - URL validation (HTTP/HTTPS only, private IP warnings)
+   - Payload building for Node service
+   - Error class mapping from Node error codes
+   - Error message formatting
+
+3. **service_client.rb** — Node service lifecycle and HTTP
+   - Auto-start Node service on first crawl
+   - Health checks before each request
+   - Process spawning with proper environment
+   - HTTP POST requests to `/crawl` endpoint
+   - JSON response parsing and error handling
+
+4. **result.rb** — Result object with lazy markdown
+   - Stores html, text, links, metadata
+   - Lazy-loads markdown conversion on first access
+   - Uses reverse_markdown gem for GitHub-flavored markdown
+   - Resolves relative URLs to absolute in markdown
+
+5. **url_normalizer.rb** — URL normalization and deduplication
+   - Normalizes URLs (lowercase host/scheme, remove fragments)
+   - Removes tracking parameters (utm_*, fbclid, gclid)
+   - Resolves relative URLs to absolute
+   - Same-host checking for multi-page crawls
+
+6. **markdown_converter.rb** — HTML to Markdown conversion
+   - Uses reverse_markdown gem with GitHub-flavored output
+   - Resolves relative URLs in markdown to absolute
+   - Graceful degradation if reverse_markdown not installed
+
+7. **site_crawler.rb** — Multi-page BFS crawler
+   - Breadth-first search with configurable depth limits
+   - URL deduplication using UrlNormalizer
+   - Yields PageResult for each crawled page (streaming)
+   - Same-host filtering for focused crawls
+   - Error recovery (continues on page failures)
+
+### Responsibilities
 
 1. **Public API**
-   - Expose `RubyCrawl.crawl(url, **options)` class method
-   - Provide `RubyCrawl.configure(**defaults)` for global settings
-   - Return `RubyCrawl::Result` struct with normalized data
+   - Single-page: `RubyCrawl.crawl(url, **options)` → Result
+   - Multi-page: `RubyCrawl.crawl_site(url, max_pages:, max_depth:, &block)` → Integer
+   - Configuration: `RubyCrawl.configure(**defaults)`
 
-2. **Service Lifecycle Management**
-   - Auto-start Node service on first crawl
-   - Health check Node service before each request
-   - Spawn Node process with proper environment variables
-   - Handle Node service startup failures gracefully
+2. **Service Lifecycle** (ServiceClient)
+   - Auto-start Node service
+   - Health checks
+   - Process management
 
-3. **Configuration Management**
-   - Merge global config with per-request options
-   - Validate configuration parameters
-   - Pass validated config to Node service
+3. **Error Handling** (Helpers + custom errors)
+   - Catch and wrap Node errors
+   - Retry transient failures (ServiceError, TimeoutError) with exponential backoff
+   - Meaningful error messages
 
-4. **HTTP Communication**
-   - Send POST requests to Node service (`/crawl` endpoint)
-   - Parse JSON responses from Node
-   - Handle network errors and timeouts
+4. **Content Processing**
+   - ✅ HTML (from Node)
+   - ✅ Links (from Node)
+   - ✅ Metadata (from Node)
+   - ✅ Markdown conversion (Ruby, lazy-loaded)
+   - ⏳ Plain text (coming soon, will be from Node)
 
-5. **Error Handling**
-   - Catch and wrap Node service errors
-   - Provide meaningful error messages to users
-   - Distinguish between network, browser, and content errors
+5. **Multi-Page Crawling** (SiteCrawler)
+   - BFS algorithm with depth tracking
+   - URL normalization and deduplication
+   - Same-host filtering
+   - Streaming results via yield
 
-6. **Content Post-processing** (Future)
-   - Convert HTML to plain text
-   - Convert HTML to Markdown
-   - Extract and normalize links
-   - Calculate content metrics
-
-7. **Testing**
+6. **Testing**
    - RSpec tests for all public methods
    - Mock Node service responses for fast tests
    - Integration tests with real Node service
@@ -137,9 +186,9 @@ The Ruby gem (`lib/rubycrawl.rb`) is the **public interface** and **orchestratio
 ### What Ruby Should NOT Do
 
 - **Don't** interact with Playwright directly
-- **Don't** parse HTML/DOM (delegate to Node or future Ruby processors)
+- **Don't** parse HTML/DOM for extraction (delegate to Node)
 - **Don't** manage browser processes (Node's job)
-- **Don't** implement retry logic yet (keep it simple for v0.1)
+- **Don't** implement crawler-specific logic in main class (use SiteCrawler)
 
 ## Node.js Layer Responsibilities
 
@@ -173,9 +222,11 @@ The Node service (`node/src/index.js`) is the **browser automation layer**:
 
 5. **Content Extraction**
    - Extract raw HTML via `page.content()`
+   - Extract links via `extractLinks(page)` → array of `{url, text, title, rel}`
+   - Extract metadata via `extractMetadata(page)` → title, description, OG tags, Twitter cards, etc.
    - Capture HTTP status code
    - Record final URL after redirects
-   - Return metadata (status, URL, timing)
+   - Return structured JSON with all extracted data
 
 6. **Error Handling**
    - Catch navigation errors (timeout, DNS, SSL)
@@ -331,9 +382,50 @@ result = RubyCrawl.crawl(url)
 # All attributes are accessible
 result.html      # String: Full HTML content
 result.text      # String: Plain text (coming soon)
-result.markdown  # String: Markdown (coming soon)
-result.links     # Array: Extracted links (coming soon)
-result.metadata  # Hash: { status: 200, final_url: "..." }
+result.markdown  # String: Lazy-loaded Markdown (uses reverse_markdown)
+result.links     # Array: Extracted links [{"url" => "...", "text" => "..."}, ...]
+result.metadata  # Hash: { "status" => 200, "final_url" => "...", "title" => "...", ... }
+result.final_url # String: Helper method for metadata['final_url']
+result.markdown? # Boolean: Check if markdown has been computed
+```
+
+#### PageResult Object (from crawl_site)
+
+```ruby
+RubyCrawl.crawl_site(url, max_pages: 100) do |page|
+  page.url       # String: Final URL after redirects
+  page.html      # String: Full HTML content
+  page.markdown  # String: Lazy-loaded Markdown
+  page.links     # Array: URLs extracted from page (strings only, not hashes)
+  page.metadata  # Hash: Status, final_url, title, etc.
+  page.depth     # Integer: Link depth from start URL
+end
+```
+
+### Current Multi-Page API (v0.1.0)
+
+#### Site Crawling
+
+```ruby
+# Crawl entire site with BFS, yielding each page as it's crawled
+RubyCrawl.crawl_site("https://example.com",
+  max_pages: 100,        # Maximum pages to crawl
+  max_depth: 3,          # Maximum link depth from start URL
+  same_host_only: true,  # Only follow links on same domain
+  wait_until: "load",    # Page load strategy (inherited from config)
+  block_resources: true  # Block images/fonts/CSS (inherited from config)
+) do |page|
+  # Each page is yielded as crawled (streaming, not batch)
+  puts "Crawled: #{page.url} (depth: #{page.depth})"
+
+  # Save to database
+  Page.create!(
+    url: page.url,
+    html: page.html,
+    markdown: page.markdown,  # Lazy-loaded
+    depth: page.depth
+  )
+end
 ```
 
 ### Future API (Planned)
@@ -392,12 +484,23 @@ The Node service communicates with Ruby via HTTP + JSON. Keep it simple and cont
   "ok": true,
   "url": "https://example.com",
   "html": "<html>...</html>",
-  "text": "",  // Future
-  "markdown": "",  // Future
-  "links": [],  // Future
+  "text": "",  // Coming soon
+  "markdown": "",  // Not used (Ruby handles this)
+  "links": [
+    {"url": "https://example.com/about", "text": "About Us", "title": null, "rel": null},
+    {"url": "https://example.com/contact", "text": "Contact", "title": "Contact page", "rel": null}
+  ],
   "metadata": {
     "status": 200,
-    "final_url": "https://example.com"
+    "final_url": "https://example.com",
+    "title": "Example Domain",
+    "description": "Example website",
+    "og_title": "Example Domain",
+    "og_description": "Example website",
+    "og_image": "https://example.com/image.png",
+    "canonical": "https://example.com",
+    "lang": "en",
+    "charset": "UTF-8"
   }
 }
 ```
