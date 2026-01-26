@@ -87,6 +87,32 @@ try {
 }
 ```
 
+#### Session Management
+
+Sessions allow reusing browser contexts across multiple crawls:
+
+**How it works:**
+- `/session/create` — Creates a new browser context, returns session_id
+- `/crawl` with `session_id` — Reuses existing context (cookies/storage persist)
+- `/session/destroy` — Closes context and removes from memory
+- Automatic TTL: Sessions expire after 30 min of inactivity
+- Automatic cleanup: Every 5 minutes, expired sessions are removed
+
+**Session ID generation:**
+```javascript
+function generateSessionId() {
+  return `sess_${crypto.randomBytes(16).toString("hex")}`;
+}
+```
+
+**Auto-recreation on retry:**
+If a session_id is provided but doesn't exist (expired/destroyed), the Node service automatically recreates it. This makes job retries seamless.
+
+**Resource management:**
+- One-off crawls (no session_id): Context created and destroyed per request
+- Session crawls: Context reused across multiple requests
+- Multi-page `crawl_site`: Automatically creates/destroys session internally
+
 #### Testing Expectations
 
 - **Ruby tests**: Fast unit tests that mock Node responses
@@ -228,6 +254,7 @@ When reviewing or writing code:
 - ✅ Link extraction with url, text, title, rel attributes
 - ✅ Markdown conversion (lazy-loaded with reverse_markdown)
 - ✅ Multi-page crawling with BFS algorithm
+- ✅ Session management for preserving browser state across crawls
 - ✅ URL normalization and deduplication
 - ✅ HTML metadata (status, final URL, OG tags, Twitter cards, etc.)
 - ✅ Resource blocking for performance
@@ -240,20 +267,17 @@ When reviewing or writing code:
 ### What's Coming (Roadmap)
 
 **v0.2.0** (Next):
-- Plain text extraction
-- Screenshot capture
-- Robots.txt support
-- Rate limiting for multi-page crawls
+- Screenshot capture (full page, element) - Returns base64 or saves to file
+- Plain text extraction - `result.text` with actual DOM innerText
+- Rails/ActiveJob documentation - Background job patterns and examples
 
 **v0.3.0** (Future):
-- Interactive crawling (click, scroll, fill forms)
-- Session/cookie support
-- Custom JavaScript execution
+- User Agent customization - `user_agent: "MyBot/1.0"`
+- Custom request headers - `headers: { "Authorization" => "Bearer ..." }`
+- Configurable timeout - `timeout: 60_000` (override default 30s)
+- Proxy support - `proxy: "http://proxy:8080"`
 
-**v0.4.0** (Future):
-- Proxy support
-- Custom headers
-- Authentication helpers
+**Philosophy Note:** RubyCrawl is focused on **crawling public websites**. For interactive features (click, scroll, forms, custom JavaScript execution, PDF generation), users should use [Playwright Ruby bindings](https://github.com/YusukeIwaki/playwright-ruby-client) directly.
 
 **v1.0.0** (Stable):
 - Production battle-tested

@@ -202,13 +202,13 @@ puts "Crawled #{pages_crawled} pages into knowledge base"
 
 #### Multi-Page Options
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `max_pages` | 50 | Maximum number of pages to crawl |
-| `max_depth` | 3 | Maximum link depth from start URL |
-| `same_host_only` | true | Only follow links on the same domain |
-| `wait_until` | inherited | Page load strategy |
-| `block_resources` | inherited | Block images/fonts/CSS |
+| Option            | Default   | Description                          |
+| ----------------- | --------- | ------------------------------------ |
+| `max_pages`       | 50        | Maximum number of pages to crawl     |
+| `max_depth`       | 3         | Maximum link depth from start URL    |
+| `same_host_only`  | true      | Only follow links on the same domain |
+| `wait_until`      | inherited | Page load strategy                   |
+| `block_resources` | inherited | Block images/fonts/CSS               |
 
 #### Page Result Object
 
@@ -216,7 +216,7 @@ The block receives a `PageResult` with:
 
 ```ruby
 page.url       # String: Final URL after redirects
-page.html      # String: Full HTML content  
+page.html      # String: Full HTML content
 page.markdown  # String: Lazy-converted Markdown
 page.links     # Array: URLs extracted from page
 page.metadata  # Hash: HTTP status, final URL, etc.
@@ -267,6 +267,43 @@ result = RubyCrawl.crawl(
 - `load` — Wait for the load event (fastest, good for static sites)
 - `domcontentloaded` — Wait for DOM ready (medium speed)
 - `networkidle` — Wait until no network requests for 500ms (slowest, best for SPAs)
+
+### Advanced Usage
+
+#### Session-Based Crawling
+
+Sessions allow reusing browser contexts for better performance when crawling multiple pages. They're automatically used by `crawl_site`, but you can manage them manually for advanced use cases:
+
+```ruby
+# Create a session (reusable browser context)
+session_id = RubyCrawl.create_session
+
+begin
+  # All crawls with this session_id share the same browser context
+  result1 = RubyCrawl.crawl("https://example.com/page1", session_id: session_id)
+  result2 = RubyCrawl.crawl("https://example.com/page2", session_id: session_id)
+  # Browser state (cookies, localStorage) persists between crawls
+ensure
+  # Always destroy session when done
+  RubyCrawl.destroy_session(session_id)
+end
+```
+
+**When to use sessions:**
+
+- Multiple sequential crawls to the same domain (better performance)
+- Preserving cookies/state set by the site between page visits
+- Avoiding browser context creation overhead
+
+**Important:** Sessions are for **performance optimization only**. RubyCrawl is designed for crawling **public websites**. It does not provide authentication or login functionality for protected content.
+
+**Note:** `crawl_site` automatically creates and manages a session internally, so you don't need manual session management for multi-page crawling.
+
+**Session lifecycle:**
+
+- Sessions automatically expire after 30 minutes of inactivity
+- Sessions are cleaned up every 5 minutes
+- Always call `destroy_session` when done to free resources immediately
 
 ### Result Object
 
@@ -376,6 +413,7 @@ end
 ```
 
 **Exception Hierarchy:**
+
 - `RubyCrawl::Error` (base class)
   - `RubyCrawl::ConfigurationError` - Invalid URL or configuration
   - `RubyCrawl::TimeoutError` - Timeout during crawl
@@ -487,220 +525,40 @@ Add to `package.json` in your Rails root:
 }
 ```
 
-### Performance Tips
+## How It Works
 
-- **Reuse instances**: Use the class-level `RubyCrawl.crawl` method (recommended) rather than creating new instances
-- **Resource blocking**: Keep `block_resources: true` for 2-3x faster crawls when you don't need images/CSS
+RubyCrawl uses a simple architecture:
+
+- **Ruby Gem** provides the public API and handles orchestration
+- **Node.js Service** (bundled, auto-started) manages Playwright browsers
+- Communication via HTTP/JSON on localhost
+
+This design keeps things stable and easy to debug. The browser runs in a separate process, so crashes won't affect your Ruby application.
+
+## Performance Tips
+
+- **Resource blocking**: Keep `block_resources: true` (default) for 2-3x faster crawls when you don't need images/CSS
+- **Wait strategy**: Use `wait_until: "load"` for static sites, `"networkidle"` for SPAs
 - **Concurrency**: Use background jobs (Sidekiq, etc.) for parallel crawling
-- **Browser reuse**: The first crawl is slower due to browser launch; subsequent crawls reuse the process
-
-## Architecture
-
-RubyCrawl uses a **dual-process architecture** with a modular Ruby design:
-
-```
-┌─────────────────────────────────────────────┐
-│  Ruby Process (Your Application)            │
-│  ┌─────────────────────────────────────┐   │
-│  │  RubyCrawl Gem (Modular Design)      │   │
-│  │  ┌─────────────────────────────┐    │   │
-│  │  │ Public API (rubycrawl.rb)   │    │   │
-│  │  └──────────┬──────────────────┘    │   │
-│  │             │                        │   │
-│  │  ┌──────────┴───────────────────┐   │   │
-│  │  │ Core Modules:                │   │   │
-│  │  │ • ServiceClient (Node mgmt)  │   │   │
-│  │  │ • Result (lazy markdown)     │   │   │
-│  │  │ • SiteCrawler (BFS)          │   │   │
-│  │  │ • UrlNormalizer (dedup)      │   │   │
-│  │  │ • MarkdownConverter (HTML→MD)│   │   │
-│  │  │ • Helpers (validation)       │   │   │
-│  │  │ • Errors (hierarchy)         │   │   │
-│  │  └──────────────────────────────┘   │   │
-│  └────────────┬────────────────────────┘   │
-└───────────────┼─────────────────────────────┘
-                │ HTTP/JSON (localhost:3344)
-┌───────────────┼─────────────────────────────┐
-│  Node.js Process (Auto-started by Ruby)     │
-│  ┌────────────┴────────────────────────┐   │
-│  │  Playwright Service (index.js)       │   │
-│  │  • Browser lifecycle management      │   │
-│  │  • Page navigation & waiting         │   │
-│  │  • HTML extraction                   │   │
-│  │  • Link extraction                   │   │
-│  │  • Metadata extraction               │   │
-│  │  • Resource blocking (performance)   │   │
-│  └─────────────────────────────────────┘   │
-└─────────────────────────────────────────────┘
-```
-
-**Why this architecture?**
-
-- **Separation of concerns**: Ruby handles orchestration, Node handles browsers
-- **Modular design**: Focused modules for validation, HTTP, crawling, conversion
-- **Stability**: Playwright's official Node.js bindings are most reliable
-- **Performance**: Long-running browser process reused across requests
-- **Lazy loading**: Markdown conversion only happens when accessed
-- **Simplicity**: No C extensions, pure Ruby + bundled Node service
-
-**Data Flow:**
-
-1. **User calls** `RubyCrawl.crawl(url)` or `RubyCrawl.crawl_site(url)`
-2. **ServiceClient** ensures Node service is running (auto-starts if needed)
-3. **Helpers** validate URL and build request payload
-4. **ServiceClient** sends HTTP POST to Node service
-5. **Node service** uses Playwright to crawl page, extract HTML, links, metadata
-6. **Result object** receives data, caches it, lazily converts markdown when accessed
-7. **SiteCrawler** (if multi-page) normalizes URLs, deduplicates, follows links via BFS
-
-See [.github/copilot-instructions.md](.github/copilot-instructions.md) for detailed architecture documentation.
-
-## Performance
-
-### Benchmarks
-
-Typical crawl times (M1 Mac, fast network):
-
-| Page Type   | First Crawl | Subsequent | Config                      |
-| ----------- | ----------- | ---------- | --------------------------- |
-| Static HTML | ~2s         | ~500ms     | `block_resources: true`     |
-| SPA (React) | ~3s         | ~1.2s      | `wait_until: "networkidle"` |
-| Heavy site  | ~4s         | ~2s        | `block_resources: false`    |
-
-**Note**: First crawl includes browser launch time (~1.5s). Subsequent crawls reuse the browser.
-
-### Optimization Tips
-
-1. **Enable resource blocking** for content-only extraction:
-
-   ```ruby
-   RubyCrawl.configure(block_resources: true)
-   ```
-
-2. **Use appropriate wait strategy**:
-   - Static sites: `wait_until: "load"`
-   - SPAs: `wait_until: "networkidle"`
-
-3. **Batch processing**: Use background jobs for concurrent crawling:
-   ```ruby
-   urls.each { |url| CrawlJob.perform_later(url) }
-   ```
+- **Browser reuse**: The first crawl is slower (~2s) due to browser launch; subsequent crawls are much faster (~500ms)
 
 ## Development
 
-### Setup
+Want to contribute? Check out the [contributor guidelines](.github/copilot-instructions.md).
 
 ```bash
+# Setup
 git clone git@github.com:craft-wise/rubycrawl.git
 cd rubycrawl
-bin/setup  # Installs dependencies and sets up Node service
-```
+bin/setup
 
-### Running Tests
-
-```bash
+# Run tests
 bundle exec rspec
-```
 
-### Manual Testing
-
-```bash
-# Terminal 1: Start Node service manually (optional)
-cd node
-npm start
-
-# Terminal 2: Ruby console
+# Manual testing
 bin/console
-> result = RubyCrawl.crawl("https://example.com")
-> puts result.html
+> RubyCrawl.crawl("https://example.com")
 ```
-
-### Project Structure
-
-```
-rubycrawl/
-├── lib/
-│   ├── rubycrawl.rb                  # Main gem, public API
-│   └── rubycrawl/
-│       ├── version.rb                # Gem version
-│       ├── errors.rb                 # Custom exception hierarchy
-│       ├── helpers.rb                # URL validation, payload building
-│       ├── service_client.rb         # Node service lifecycle & HTTP
-│       ├── url_normalizer.rb         # URL normalization & deduplication
-│       ├── markdown_converter.rb     # HTML → Markdown conversion
-│       ├── result.rb                 # Result object with lazy markdown
-│       ├── site_crawler.rb           # BFS multi-page crawler
-│       ├── railtie.rb                # Rails integration
-│       └── tasks/
-│           └── install.rake          # Installation task
-├── node/
-│   ├── src/
-│   │   └── index.js                  # Playwright HTTP service
-│   ├── package.json                  # Node.js dependencies
-│   └── README.md                     # Node service documentation
-├── spec/
-│   ├── rubycrawl_spec.rb             # RSpec tests
-│   └── spec_helper.rb
-├── .github/
-│   └── copilot-instructions.md       # Contributor guidelines
-├── CLAUDE.md                         # AI assistant guidelines
-├── README.md                         # This file
-├── rubycrawl.gemspec                 # Gem specification
-└── Rakefile                          # Rake tasks
-```
-
-### Module Descriptions
-
-**Core Modules:**
-
-- **errors.rb** — Custom exception hierarchy (Error, ServiceError, NavigationError, TimeoutError, ConfigurationError)
-- **helpers.rb** — URL validation, request payload building, error class mapping
-- **service_client.rb** — Node.js service lifecycle management, health checks, HTTP communication
-- **result.rb** — Result object with lazy markdown conversion and URL resolution
-- **url_normalizer.rb** — URL normalization, deduplication, tracking parameter removal
-- **markdown_converter.rb** — HTML to Markdown conversion using reverse_markdown gem
-- **site_crawler.rb** — Breadth-first search multi-page crawler with depth limits
-
-## Roadmap
-
-### ✅ Current (v0.1.0)
-
-**Completed Features:**
-
-- [x] HTML extraction via Playwright
-- [x] Link extraction with metadata (url, text, title, rel)
-- [x] Markdown conversion (lazy-loaded with reverse_markdown)
-- [x] Multi-page crawling with BFS algorithm
-- [x] URL normalization and deduplication
-- [x] Tracking parameter removal (utm_*, fbclid, etc.)
-- [x] Comprehensive metadata extraction (OG tags, Twitter cards, etc.)
-- [x] Custom exception hierarchy
-- [x] Automatic retry with exponential backoff
-- [x] Resource blocking for performance
-- [x] Rails integration with generators
-- [x] Modular, maintainable architecture
-
-### 🔜 Coming Soon (v0.2.0)
-
-**Planned Features:**
-
-- [ ] Plain text extraction (DOM innerText)
-- [ ] Screenshot capture (full page, element)
-- [ ] Rate limiting for multi-page crawls
-- [ ] Robots.txt support
-- [ ] Custom user agents
-- [ ] Configurable request headers
-
-### 🚀 Future (v0.3.0+)
-
-**Advanced Features:**
-
-- [ ] Interactive crawling (click, scroll, fill forms)
-- [ ] Session/cookie support
-- [ ] Custom JavaScript execution
-- [ ] Proxy support
-- [ ] Authentication helpers
-- [ ] Structured data extraction (JSON-LD, microdata)
 
 ### 💎 Long-term (v1.0.0)
 
@@ -727,23 +585,27 @@ Contributions are welcome! Please read our [contribution guidelines](.github/cop
 RubyCrawl stands out in the Ruby ecosystem with its unique combination of features:
 
 ### 🎯 **Built for Ruby Developers**
+
 - **Idiomatic Ruby API** — Feels natural to Rubyists, no need to learn Playwright
 - **Rails-first design** — Generators, initializers, and ActiveJob integration out of the box
 - **Modular architecture** — Clean, testable code following Ruby best practices
 
 ### 🚀 **Production-Grade Reliability**
+
 - **Automatic retry** with exponential backoff for transient failures
 - **Smart error handling** with custom exception hierarchy
 - **Process isolation** — Browser crashes don't affect your Ruby application
 - **Battle-tested** — Built on Playwright's proven browser automation
 
 ### 💎 **Developer Experience**
+
 - **Zero configuration** — Works immediately after installation
 - **Lazy loading** — Markdown conversion only when you need it
 - **Smart URL handling** — Automatic normalization and deduplication
 - **Comprehensive docs** — Clear examples for common use cases
 
 ### 🌐 **Rich Feature Set**
+
 - ✅ JavaScript-enabled crawling (SPAs, AJAX, dynamic content)
 - ✅ Multi-page crawling with BFS algorithm
 - ✅ Link extraction with metadata (url, text, title, rel)
@@ -752,6 +614,7 @@ RubyCrawl stands out in the Ruby ecosystem with its unique combination of featur
 - ✅ Resource blocking for 2-3x performance boost
 
 ### 📊 **Perfect for Modern Use Cases**
+
 - **RAG applications** — Build AI knowledge bases from documentation
 - **Data aggregation** — Extract structured data from multiple pages
 - **Content migration** — Convert sites to Markdown for static generators
@@ -777,6 +640,7 @@ Powered by [reverse_markdown](https://github.com/xijo/reverse_markdown) for GitH
 ## Acknowledgments
 
 Special thanks to:
+
 - [Microsoft Playwright](https://playwright.dev/) team for the robust, production-grade browser automation framework
 - The Ruby community for building an ecosystem that values developer happiness and code clarity
 - The Node.js community for excellent tooling and libraries that make cross-language integration seamless

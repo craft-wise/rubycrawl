@@ -37,6 +37,7 @@ class RubyCrawl
       @block_resources = options.fetch(:block_resources, nil)
       @visited = Set.new
       @queue = []
+      @session_id = nil
     end
 
     def crawl(start_url, &block)
@@ -46,8 +47,11 @@ class RubyCrawl
       raise ConfigurationError, "Invalid start URL: #{start_url}" unless normalized
 
       @base_url = normalized
+      @session_id = @client.create_session
       enqueue(normalized, 0)
       process_queue(&block)
+    ensure
+      @client.destroy_session(@session_id) if @session_id
     end
 
     private
@@ -77,7 +81,7 @@ class RubyCrawl
     end
 
     def crawl_page(url, depth)
-      result = @client.crawl(url, wait_until: @wait_until, block_resources: @block_resources)
+      result = @client.crawl(url, wait_until: @wait_until, block_resources: @block_resources, session_id: @session_id)
       build_page_result(url, depth, result)
     rescue Error => e
       warn "[rubycrawl] Failed to crawl #{url}: #{e.message}"

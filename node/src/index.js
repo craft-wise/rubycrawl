@@ -1,5 +1,6 @@
 import "dotenv/config";
 import http from "node:http";
+import crypto from "node:crypto";
 import { chromium } from "playwright";
 
 const HOST = "127.0.0.1";
@@ -47,7 +48,18 @@ function validateRequest(body) {
 }
 
 let browserPromise;
-let contextPromise;
+
+// Session storage: session_id -> { context, createdAt, lastUsedAt }
+const sessions = new Map();
+
+// Session TTL: 30 minutes of inactivity
+const SESSION_TTL_MS = 30 * 60 * 1000;
+// Cleanup interval: every 5 minutes
+const CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
+
+function generateSessionId() {
+  return `sess_${crypto.randomBytes(16).toString("hex")}`;
+}
 
 function getBrowser() {
   if (!browserPromise) {
@@ -56,19 +68,74 @@ function getBrowser() {
   return browserPromise;
 }
 
-async function getContext() {
-  if (!contextPromise) {
-    const browser = await getBrowser();
-    contextPromise = browser.newContext();
-  }
-
-  return contextPromise;
+/**
+ * Create a fresh browser context.
+ */
+async function createContext() {
+  const browser = await getBrowser();
+  return browser.newContext();
 }
 
 /**
+ * Get or create context based on session_id.
+ * If session_id provided and exists, reuse existing context.
+ * If session_id provided but expired/destroyed, create new context (handles retries).
+ * Otherwise create a fresh one-off context.
+ */
+async function getContext(sessionId) {
+  if (sessionId && sessions.has(sessionId)) {
+    // Update last used time
+    const session = sessions.get(sessionId);
+    session.lastUsedAt = Date.now();
+    return { context: session.context, isSession: true };
+  }
+
+  // If session_id provided but doesn't exist (expired/destroyed), recreate it
+  // This handles job retries gracefully
+  if (sessionId) {
+    const context = await createContext();
+    const now = Date.now();
+    sessions.set(sessionId, { context, createdAt: now, lastUsedAt: now });
+    // eslint-disable-next-line no-console
+    console.log(`[rubycrawl] session recreated ${sessionId} (was expired or destroyed)`);
+    return { context, isSession: true };
+  }
+
+  return { context: await createContext(), isSession: false };
+}
+
+/**
+ * Cleanup expired sessions (no activity for SESSION_TTL_MS).
+ */
+async function cleanupExpiredSessions() {
+  const now = Date.now();
+  const expiredIds = [];
+
+  for (const [sessionId, session] of sessions) {
+    if (now - session.lastUsedAt > SESSION_TTL_MS) {
+      expiredIds.push(sessionId);
+    }
+  }
+
+  for (const sessionId of expiredIds) {
+    const session = sessions.get(sessionId);
+    await session.context.close().catch(() => {});
+    sessions.delete(sessionId);
+    // eslint-disable-next-line no-console
+    console.log(`[rubycrawl] session expired ${sessionId} (inactive for ${SESSION_TTL_MS / 60000} min)`);
+  }
+
+  if (expiredIds.length > 0) {
+    // eslint-disable-next-line no-console
+    console.log(`[rubycrawl] cleanup: ${expiredIds.length} expired, ${sessions.size} active`);
+  }
+}
+
+// Start cleanup interval
+setInterval(cleanupExpiredSessions, CLEANUP_INTERVAL_MS);
+
+/**
  * Extract HTML metadata from the page
- * @param {import('playwright').Page} page - The Playwright page object
- * @returns {Promise<Object>} Metadata object with title, description, OG tags, etc.
  */
 async function extractMetadata(page) {
   return page.evaluate(() => {
@@ -107,8 +174,6 @@ async function extractMetadata(page) {
 
 /**
  * Extract links from the page.
- * @param {import('playwright').Page} page - The Playwright page object
- * @returns {Promise<Array>} Array of link objects
  */
 async function extractLinks(page) {
   return page.evaluate(() => {
@@ -123,6 +188,9 @@ async function extractLinks(page) {
 }
 
 async function handleCrawl(req, res) {
+  let context = null;
+  let isSession = false;
+
   try {
     const body = await readJson(req);
     const validation = validateRequest(body);
@@ -138,9 +206,13 @@ async function handleCrawl(req, res) {
 
     const start = Date.now();
     // eslint-disable-next-line no-console
-    console.log(`[rubycrawl] crawl start ${body.url}`);
+    console.log(`[rubycrawl] crawl start ${body.url}${body.session_id ? ` (session=${body.session_id})` : ""}`);
 
-    const context = await getContext();
+    // Get context (reuse if session_id provided)
+    const ctxResult = await getContext(body.session_id);
+    context = ctxResult.context;
+    isSession = ctxResult.isSession;
+
     const page = await context.newPage();
 
     try {
@@ -192,14 +264,82 @@ async function handleCrawl(req, res) {
     // eslint-disable-next-line no-console
     console.log(`[rubycrawl] crawl error ${code} ${error?.message || ""}`);
     return json(res, 400, { error: code, message: error?.message });
+  } finally {
+    // Only close context if not a session (sessions are managed separately)
+    if (context && !isSession) {
+      await context.close().catch(() => {});
+    }
+  }
+}
+
+/**
+ * Create a new session with a reusable browser context.
+ */
+async function handleSessionCreate(req, res) {
+  try {
+    const sessionId = generateSessionId();
+    const context = await createContext();
+    const now = Date.now();
+    sessions.set(sessionId, { context, createdAt: now, lastUsedAt: now });
+
+    // eslint-disable-next-line no-console
+    console.log(`[rubycrawl] session created ${sessionId} (active=${sessions.size})`);
+
+    return json(res, 200, { ok: true, session_id: sessionId });
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.log(`[rubycrawl] session create error ${error?.message || ""}`);
+    return json(res, 400, { error: "session_create_failed", message: error?.message });
+  }
+}
+
+/**
+ * Destroy a session and close its browser context.
+ * Returns success even if session doesn't exist (idempotent for retries).
+ */
+async function handleSessionDestroy(req, res) {
+  try {
+    const body = await readJson(req);
+    const sessionId = body.session_id;
+
+    if (!sessionId) {
+      return json(res, 422, { error: "session_id required" });
+    }
+
+    // Idempotent: if session doesn't exist, still return success
+    if (!sessions.has(sessionId)) {
+      return json(res, 200, { ok: true, message: "session already destroyed or expired" });
+    }
+
+    const session = sessions.get(sessionId);
+    await session.context.close().catch(() => {});
+    sessions.delete(sessionId);
+
+    // eslint-disable-next-line no-console
+    console.log(`[rubycrawl] session destroyed ${sessionId}`);
+
+    return json(res, 200, { ok: true });
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.log(`[rubycrawl] session destroy error ${error?.message || ""}`);
+    return json(res, 400, { error: "session_destroy_failed", message: error?.message });
   }
 }
 
 const server = http.createServer((req, res) => {
   // eslint-disable-next-line no-console
   console.log(`[rubycrawl] request ${req.method} ${req.url}`);
+
   if (req.method === "POST" && req.url === "/crawl") {
     return handleCrawl(req, res);
+  }
+
+  if (req.method === "POST" && req.url === "/session/create") {
+    return handleSessionCreate(req, res);
+  }
+
+  if (req.method === "POST" && req.url === "/session/destroy") {
+    return handleSessionDestroy(req, res);
   }
 
   if (req.method === "GET" && req.url === "/health") {

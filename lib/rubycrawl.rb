@@ -45,6 +45,18 @@ class RubyCrawl
       client.crawl_site(url, ...)
     end
 
+    # Create a session for reusing browser context across multiple crawls.
+    # @return [String] session_id
+    def create_session
+      client.create_session
+    end
+
+    # Destroy a session and close its browser context.
+    # @param session_id [String]
+    def destroy_session(session_id)
+      client.destroy_session(session_id)
+    end
+
     def configure(**options)
       @client = new(**options)
     end
@@ -55,15 +67,28 @@ class RubyCrawl
     build_service_client
   end
 
-  def crawl(url, wait_until: @wait_until, block_resources: @block_resources, retries: @max_retries)
+  def crawl(url, wait_until: @wait_until, block_resources: @block_resources, retries: @max_retries, session_id: nil)
     validate_url!(url)
     @service_client.ensure_running
     with_retries(retries) do
-      payload = build_payload(url, wait_until, block_resources)
+      payload = build_payload(url, wait_until, block_resources, session_id)
       response = @service_client.post_json('/crawl', payload)
       raise_node_error!(response)
       build_result(response)
     end
+  end
+
+  # Create a session for reusing browser context.
+  # @return [String] session_id
+  def create_session
+    @service_client.ensure_running
+    @service_client.create_session
+  end
+
+  # Destroy a session.
+  # @param session_id [String]
+  def destroy_session(session_id)
+    @service_client.destroy_session(session_id)
   end
 
   # Crawl multiple pages starting from a URL, following links.

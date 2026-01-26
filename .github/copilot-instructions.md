@@ -23,6 +23,9 @@ Provide Ruby developers with a reliable, accurate web crawler that handles moder
    - **Do not** use Ferrum or direct CDP integrations (too fragile)
    - **Do** use official Playwright Node.js bindings (most stable)
 7. **Developer Experience**: Be easy to run locally, in CI/CD, and in production environments
+8. **Crawling-First Focus**: RubyCrawl is for **crawling public websites**, not browser automation
+   - For interactive features (click, scroll, forms, custom JS), users should use Playwright Ruby bindings directly
+   - Keep scope focused on content extraction and multi-page crawling
 
 ## Non-goals
 
@@ -170,7 +173,9 @@ The Ruby gem is the **public interface** and **orchestration layer**, now organi
    - ✅ Links (from Node)
    - ✅ Metadata (from Node)
    - ✅ Markdown conversion (Ruby, lazy-loaded)
-   - ⏳ Plain text (coming soon, will be from Node)
+   - ⏳ Plain text (v0.2.0, will be from Node via `innerText`)
+   - ⏳ Screenshots (v0.2.0, full page or element, base64 or file)
+   - ⏳ Rails/ActiveJob docs (v0.2.0, background job patterns)
 
 5. **Multi-Page Crawling** (SiteCrawler)
    - BFS algorithm with depth tracking
@@ -205,8 +210,10 @@ The Node service (`node/src/index.js`) is the **browser automation layer**:
 2. **Browser Lifecycle**
    - Launch Playwright browser on startup (singleton)
    - Keep browser process alive across requests
-   - Create new context per request (isolation)
-   - Close contexts after each crawl (cleanup)
+   - Create new context per request (isolation) OR reuse session context
+   - Close contexts after each crawl (cleanup for non-session contexts)
+   - Session management: `/session/create`, `/session/destroy`
+   - Automatic session TTL: 30 min inactivity, cleanup every 5 min
    - Handle browser crashes and restarts
 
 3. **Page Navigation**
@@ -234,12 +241,22 @@ The Node service (`node/src/index.js`) is the **browser automation layer**:
    - Log errors with context
    - Never crash the service
 
+7. **Session Management** (for state persistence)
+   - `POST /session/create` — Creates new browser context, returns session_id
+   - `POST /session/destroy` — Closes context, removes from memory (idempotent)
+   - Sessions store: `{ context, createdAt, lastUsedAt }`
+   - TTL: 30 minutes of inactivity
+   - Cleanup: Runs every 5 minutes
+   - Auto-recreation: If session_id provided but expired, recreate it (handles retries)
+   - Cookies, localStorage, sessionStorage persist within session
+   - Used by `crawl_site` internally for performance
+
 ### What Node Should NOT Do
 
 - **Don't** interpret content semantics (e.g., "is this a product page?")
 - **Don't** extract structured data (leave for Ruby or future extractors)
 - **Don't** implement business logic
-- **Don't** persist state across requests (stateless per crawl)
+- **Don't** persist state across requests (except via explicit sessions)
 - **Don't** use complex JavaScript frameworks (keep it simple)
 
 ## Design Principles

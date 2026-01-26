@@ -21,10 +21,11 @@ class RubyCrawl
       raise ConfigurationError, "Invalid URL: #{e.message}"
     end
 
-    def build_payload(url, wait_until, block_resources)
+    def build_payload(url, wait_until, block_resources, session_id = nil)
       payload = { url: url }
       payload[:wait_until] = wait_until if wait_until
       payload[:block_resources] = block_resources unless block_resources.nil?
+      payload[:session_id] = session_id if session_id
       payload
     end
 

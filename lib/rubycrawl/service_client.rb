@@ -36,6 +36,24 @@ class RubyCrawl
       raise TimeoutError, "Request to node service timed out: #{e.message}"
     end
 
+    # Create a session for reusing browser context across multiple crawls.
+    # @return [String] session_id
+    def create_session
+      response = post_json('/session/create', {})
+      raise ServiceError, "Failed to create session: #{response['error']}" if response['error']
+
+      response['session_id']
+    end
+
+    # Destroy a session and close its browser context.
+    # @param session_id [String]
+    def destroy_session(session_id)
+      post_json('/session/destroy', { session_id: session_id })
+    rescue StandardError
+      # Ignore errors on destroy - context may already be closed
+      nil
+    end
+
     private
 
     def build_request(uri, body)
