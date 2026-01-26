@@ -14,10 +14,18 @@ class RubyCrawl
     end
 
     # Returns markdown, converting from HTML lazily if needed.
+    # Relative URLs are resolved using the page's final_url.
     #
-    # @return [String] Markdown content
+    # @return [String] Markdown content with absolute URLs
     def markdown
-      @markdown ||= MarkdownConverter.convert(html)
+      @markdown ||= MarkdownConverter.convert(html, base_url: final_url)
+    end
+
+    # The final URL after redirects.
+    #
+    # @return [String, nil]
+    def final_url
+      metadata['final_url'] || metadata[:final_url]
     end
 
     # Check if markdown has been computed.

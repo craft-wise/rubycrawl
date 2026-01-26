@@ -11,7 +11,7 @@ class RubyCrawl
       uri = URI.parse(url)
 
       unless uri.is_a?(URI::HTTP) || uri.is_a?(URI::HTTPS)
-        raise ConfigurationError, "Only HTTP(S) URLs are supported, got: #{url}"
+        raise ConfigurationError, "Invalid URL: Only HTTP(S) URLs are supported, got: #{url}"
       end
 
       if uri.host&.match?(/^(localhost|127\.|192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01]))/)

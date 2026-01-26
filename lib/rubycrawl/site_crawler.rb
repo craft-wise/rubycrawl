@@ -17,9 +17,14 @@ class RubyCrawl
         @depth = depth
       end
 
-      # Lazy markdown conversion.
+      # Lazy markdown conversion with resolved URLs.
       def markdown
-        @markdown ||= MarkdownConverter.convert(html)
+        @markdown ||= MarkdownConverter.convert(html, base_url: final_url)
+      end
+
+      # The final URL after redirects.
+      def final_url
+        metadata['final_url'] || metadata[:final_url] || url
       end
     end
 
