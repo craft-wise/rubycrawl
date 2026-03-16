@@ -3,21 +3,26 @@
 class RubyCrawl
   # Result object with lazy clean_markdown conversion.
   class Result
-    attr_reader :text, :html, :links, :metadata
+    attr_reader :raw_text, :clean_text, :clean_html, :html, :links, :metadata
 
-    def initialize(text:, html:, links:, metadata:)
-      @text = text
-      @html = html
-      @links = links
-      @metadata = metadata
+    def initialize(raw_text:, clean_text:, clean_html:, html:, links:, metadata:)
+      @raw_text   = raw_text
+      @clean_text = clean_text
+      @clean_html = clean_html
+      @html       = html
+      @links      = links
+      @metadata   = metadata
     end
 
-    # Returns clean markdown converted from the page HTML.
+    # Converts the noise-stripped HTML to Markdown.
+    # Uses clean_html (nav/header/footer removed) when available, falls back to full html.
     # Relative URLs are resolved using the page's final_url.
+    # Lazy-loaded — only computed on first access.
     #
-    # @return [String] Markdown content with absolute URLs
+    # @return [String] Markdown with absolute URLs
     def clean_markdown
-      @clean_markdown ||= MarkdownConverter.convert(html, base_url: final_url)
+      source = clean_html.empty? ? html : clean_html
+      @clean_markdown ||= MarkdownConverter.convert(source, base_url: final_url)
     end
 
     # The final URL after redirects.
@@ -36,7 +41,9 @@ class RubyCrawl
 
     def to_h
       {
-        text: text,
+        raw_text: raw_text,
+        clean_text: clean_text,
+        clean_html: clean_html,
         html: html,
         links: links,
         metadata: metadata,

@@ -23,6 +23,7 @@ RubyCrawl provides **accurate, JavaScript-enabled web scraping** using Playwrigh
 result = RubyCrawl.crawl("https://docs.example.com")
 
 result.html           # Full HTML with JS rendered
+result.clean_text        # Smart-extracted text (hero, main body, headings — no nav/ads)
 result.links          # All links with metadata
 result.metadata       # Title, description, OG tags, etc.
 ```
@@ -121,8 +122,10 @@ result = RubyCrawl.crawl("https://example.com")
 
 # Access extracted content
 result.final_url       # Final URL after redirects
-result.text            # Plain text content (via innerText)
-result.html            # Raw HTML content
+result.clean_text      # Noise-stripped plain text (no nav/footer/ads)
+result.clean_html      # Noise-stripped HTML (no nav/footer/ads)
+result.raw_text        # Full body.innerText (unfiltered)
+result.html            # Full raw HTML content
 result.links           # Extracted links with metadata
 result.metadata        # Title, description, OG tags, etc.
 ```
@@ -149,7 +152,8 @@ result = RubyCrawl.crawl("https://example.com")
 
 # Access the results
 result.html            # => "<html>...</html>"
-result.text            # => "Example Domain\nThis domain is..." (plain text via innerText)
+result.clean_text         # => "Example Domain\n\nThis domain is..." (smart-extracted, no nav/ads)
+result.raw_text        # => "Example Domain\nThis domain is..." (full body.innerText)
 result.metadata        # => { "status" => 200, "final_url" => "https://example.com" }
 ```
 
@@ -223,8 +227,11 @@ The block receives a `PageResult` with:
 
 ```ruby
 page.url            # String: Final URL after redirects
-page.html           # String: Full HTML content
-page.clean_markdown # String: Lazy-converted Markdown
+page.html           # String: Full raw HTML content
+page.clean_html     # String: Noise-stripped HTML (no nav/header/footer/ads)
+page.clean_text     # String: Noise-stripped plain text (no nav/header/footer/ads)
+page.raw_text       # String: Full body.innerText (unfiltered)
+page.clean_markdown # String: Lazy-converted Markdown from clean_html
 page.links          # Array: URLs extracted from page
 page.metadata       # Hash: HTTP status, final URL, etc.
 page.depth          # Integer: Link depth from start URL
@@ -321,9 +328,13 @@ The crawl result is a `RubyCrawl::Result` object with these attributes:
 ```ruby
 result = RubyCrawl.crawl("https://example.com")
 
-result.html           # String: Raw HTML content from page
-result.text           # String: Plain text via document.body.innerText
-result.clean_markdown # String: Markdown conversion (lazy-loaded on first access)
+result.html           # String: Full raw HTML content from page
+result.clean_html     # String: Noise-stripped HTML — nav/header/footer/ads removed.
+                      #         Source for clean_markdown conversion.
+result.clean_text     # String: Noise-stripped plain text — same noise removed as clean_html.
+                      #         Ideal for RAG embeddings and LLM input.
+result.raw_text       # String: Full body.innerText (unfiltered, includes nav/footer)
+result.clean_markdown # String: Markdown converted from clean_html (lazy-loaded on first access)
 result.links          # Array: Extracted links with url and text
 result.metadata       # Hash: Comprehensive metadata (see below)
 ```
@@ -355,12 +366,12 @@ result.links
 
 #### Markdown Conversion
 
-Markdown is **lazy-loaded** — conversion only happens when you access `.clean_markdown`:
+Markdown is **lazy-loaded** — conversion only happens when you access `.clean_markdown`. It converts `clean_html` (noise-stripped HTML with nav/header/footer already removed), so the output contains only meaningful content:
 
 ```ruby
 result = RubyCrawl.crawl(url)
-result.html           # ✅ No overhead
-result.clean_markdown # ⬅️ Conversion happens here (first call only)
+result.clean_html     # ✅ Noise-stripped HTML, no overhead
+result.clean_markdown # ⬅️ Converts clean_html to Markdown here (first call only)
 result.clean_markdown # ✅ Cached, instant
 ```
 
@@ -472,7 +483,7 @@ class PagesController < ApplicationController
       url: result.final_url,
       title: result.metadata['title'],
       html: result.html,
-      text: result.text,
+      clean_text: result.clean_text,
       markdown: result.clean_markdown
     )
 

@@ -29,9 +29,13 @@ class RubyCrawl
     def same_host?(url, base_url)
       uri = URI.parse(url)
       base_uri = URI.parse(base_url)
-      uri.host&.downcase == base_uri.host&.downcase
+      canonical_host(uri.host) == canonical_host(base_uri.host)
     rescue URI::InvalidURIError
       false
+    end
+
+    def canonical_host(host)
+      host&.downcase&.delete_prefix('www.')
     end
 
     def parse_uri(url, base_url)

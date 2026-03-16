@@ -8,8 +8,10 @@ require 'spec_helper'
 CANNED_CRAWL_RESPONSE = {
   'ok' => true,
   'url' => 'https://example.com',
-  'html' => '<html><body><h1>Example</h1></body></html>',
-  'text' => 'Example',
+  'html' => '<html><body><h1>Example Domain</h1><p>This domain is for use in examples.</p></body></html>',
+  'raw_text' => "Example Domain\nThis domain is for use in examples.",
+  'clean_text' => "Example Domain\n\nThis domain is for use in examples.",
+  'clean_html' => '<h1>Example Domain</h1><p>This domain is for use in examples.</p>',
   'links' => [{ 'url' => 'https://example.com/about', 'text' => 'About', 'title' => nil, 'rel' => nil }],
   'metadata' => {
     'status' => 200,
@@ -39,11 +41,17 @@ RSpec.describe RubyCrawl do
         expect(result).to be_a(RubyCrawl::Result)
       end
 
-      it 'populates html, text, links, metadata' do
+      it 'populates html, raw_text, clean_text, clean_html, links, metadata' do
         expect(result.html).to eq(CANNED_CRAWL_RESPONSE['html'])
-        expect(result.text).to eq('Example')
+        expect(result.raw_text).to eq(CANNED_CRAWL_RESPONSE['raw_text'])
+        expect(result.clean_text).to eq(CANNED_CRAWL_RESPONSE['clean_text'])
+        expect(result.clean_html).to eq(CANNED_CRAWL_RESPONSE['clean_html'])
         expect(result.links).to eq(CANNED_CRAWL_RESPONSE['links'])
         expect(result.metadata).to include('status' => 200, 'final_url' => 'https://example.com/')
+      end
+
+      it 'content differs from raw_text (smart extraction vs full body)' do
+        expect(result.clean_text).not_to eq(result.raw_text)
       end
 
       it 'exposes final_url from metadata' do
@@ -59,6 +67,11 @@ RSpec.describe RubyCrawl do
       it 'computes clean_markdown lazily on first access' do
         expect(result.clean_markdown).to be_a(String)
         expect(result.clean_markdown?).to be true
+      end
+
+      it 'clean_markdown is derived from clean_html' do
+        expect(result.clean_markdown).not_to include('<html>')
+        expect(result.clean_markdown).to include('Example Domain')
       end
     end
 
@@ -189,11 +202,13 @@ RSpec.describe RubyCrawl do
         expect(result.metadata.keys).to include('title', 'description', 'canonical')
       end
 
-      it 'extracts plain text content' do
+      it 'extracts raw_text and smart content' do
         result = described_class.crawl('https://example.com')
-        expect(result.text).to be_a(String)
-        expect(result.text).not_to be_empty
-        expect(result.text).to include('Example Domain')
+        expect(result.raw_text).to be_a(String)
+        expect(result.raw_text).not_to be_empty
+        expect(result.clean_text).to be_a(String)
+        expect(result.clean_text).not_to be_empty
+        expect(result.clean_text).to include('Example Domain')
       end
     end
 

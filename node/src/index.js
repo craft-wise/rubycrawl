@@ -202,10 +202,104 @@ async function extractLinks(page) {
 }
 
 /**
- * Extract plain text content from the page using innerText.
+ * Extract raw plain text from the page using body.innerText (unfiltered).
  */
-async function extractText(page) {
+async function extractRawText(page) {
   return page.evaluate(() => (document.body?.innerText || "").trim());
+}
+
+// Semantic noise selectors — no class names, works across all sites.
+// Covers standard HTML5 elements and ARIA roles that browsers/frameworks emit.
+const NOISE_SELECTORS = [
+  "nav",
+  "header",
+  "footer",
+  "aside",
+  '[role="navigation"]',
+  '[role="banner"]',
+  '[role="contentinfo"]',
+  '[role="complementary"]',
+  '[role="dialog"]',
+  '[role="tooltip"]',
+  '[role="alert"]',
+  '[aria-hidden="true"]',
+  "script",
+  "style",
+  "noscript",
+  "iframe",
+].join(", ");
+
+
+/**
+ * Extract clean content text by removing noise containers and returning
+ * everything that remains.
+ *
+ * Strategy:
+ *   1. Remove semantic noise elements (nav/header/footer/aside + ARIA roles +
+ *      script/style/noscript/iframe) from a working copy of the body.
+ *   2. Use link density to also remove non-semantic noise containers
+ *      (e.g. <div class="footer-area"> that should be <footer> but isn't).
+ *   3. Return innerText of what remains, preserving paragraph breaks.
+ *
+ * This approach works well for business websites (landing pages, pricing,
+ * FAQ, feature pages) where content is spread across many <section> elements
+ * rather than concentrated in a single <main> or <article>.
+ */
+async function extractContent(page) {
+  return page.evaluate(({ noiseSelectors }) => {
+    // Link-density heuristic: identifies containers that are mostly links.
+    function linkDensity(el) {
+      const total = (el.innerText || "").trim().length;
+      if (!total) return 1;
+      const linked = Array.from(el.querySelectorAll("a")).reduce(
+        (sum, a) => sum + (a.innerText || "").trim().length,
+        0,
+      );
+      return linked / total;
+    }
+
+    // Collect all noise elements to remove temporarily.
+    // We mutate the live DOM so innerText gets proper CSS-computed line breaks,
+    // then restore everything afterwards.
+    const removed = [];
+    function stash(el) {
+      if (el.parentNode) {
+        removed.push({ el, parent: el.parentNode, next: el.nextSibling });
+        el.parentNode.removeChild(el);
+      }
+    }
+
+    // 1. Remove semantic noise elements.
+    document.body.querySelectorAll(noiseSelectors).forEach(stash);
+
+    // 2. Remove high link-density top-level containers (non-semantic footers/navs).
+    const blockTags = new Set(["script","style","noscript","link","meta"]);
+    const topChildren = Array.from(document.body.children).filter(
+      (el) => !blockTags.has(el.tagName.toLowerCase()),
+    );
+    const roots =
+      topChildren.length === 1 ? [document.body, topChildren[0]] : [document.body];
+
+    for (const root of roots) {
+      for (const el of Array.from(root.children)) {
+        const text = (el.innerText || "").trim();
+        if (text.length >= 20 && linkDensity(el) > 0.5) stash(el);
+      }
+    }
+
+    // 3. Read innerText and innerHTML with noise removed (CSS layout still applies → proper newlines).
+    const cleanText = (document.body.innerText || "")
+      .trim()
+      .replace(/\n{3,}/g, "\n\n")
+      .replace(/[ \t]{2,}/g, " ");
+
+    const cleanHtml = document.body.innerHTML;
+
+    // 4. Restore removed elements so the page is unchanged.
+    removed.reverse().forEach(({ el, parent, next }) => parent.insertBefore(el, next));
+
+    return { cleanText, cleanHtml };
+  }, { noiseSelectors: NOISE_SELECTORS });
 }
 
 async function handleCrawl(req, res) {
@@ -259,7 +353,8 @@ async function handleCrawl(req, res) {
       const status = response ? response.status() : null;
       const htmlMetadata = await extractMetadata(page);
       const links = await extractLinks(page);
-      const text = await extractText(page);
+      const rawText = await extractRawText(page);
+      const { cleanText, cleanHtml } = await extractContent(page);
 
       // eslint-disable-next-line no-console
       console.log(
@@ -270,7 +365,9 @@ async function handleCrawl(req, res) {
         ok: true,
         url: body.url,
         html,
-        text,
+        raw_text: rawText,
+        clean_text: cleanText,
+        clean_html: cleanHtml,
         links,
         metadata: {
           status,

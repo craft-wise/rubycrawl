@@ -7,20 +7,25 @@ class RubyCrawl
   class SiteCrawler
     # Page result yielded to the block with lazy clean_markdown.
     class PageResult
-      attr_reader :url, :html, :links, :metadata, :depth
+      attr_reader :url, :html, :raw_text, :clean_text, :clean_html, :links, :metadata, :depth
 
-      def initialize(url:, html:, links:, metadata:, depth:)
-        @url = url
-        @html = html
-        @links = links
-        @metadata = metadata
-        @depth = depth
+      def initialize(url:, html:, raw_text:, clean_text:, clean_html:, links:, metadata:, depth:)
+        @url        = url
+        @html       = html
+        @raw_text   = raw_text
+        @clean_text = clean_text
+        @clean_html = clean_html
+        @links      = links
+        @metadata   = metadata
+        @depth      = depth
       end
 
-      # Returns clean markdown converted from the page HTML.
+      # Returns clean markdown from noise-stripped HTML.
+      # Uses clean_html (nav/header/footer removed) when available, falls back to full html.
       # Relative URLs are resolved using the page's final_url.
       def clean_markdown
-        @clean_markdown ||= MarkdownConverter.convert(html, base_url: final_url)
+        source = clean_html.empty? ? html : clean_html
+        @clean_markdown ||= MarkdownConverter.convert(source, base_url: final_url)
       end
 
       # The final URL after redirects.
@@ -78,7 +83,17 @@ class RubyCrawl
     def process_page(url, depth)
       @visited.add(url)
       result = crawl_page(url, depth)
-      enqueue_links(result.links, depth + 1) if result && depth < @max_depth
+      return unless result
+
+      # Mark final_url visited to prevent re-crawling after redirects
+      # e.g. axonchat.ai → www.axonchat.ai should not crawl www again.
+      final = UrlNormalizer.normalize(result.final_url)
+      @visited.add(final) if final
+
+      # Update base_url on first crawl so same_host checks use the canonical host.
+      @base_url = final if depth.zero? && final
+
+      enqueue_links(result.links, depth + 1) if depth < @max_depth
       result
     end
 
@@ -94,11 +109,14 @@ class RubyCrawl
 
     def build_page_result(url, depth, result)
       PageResult.new(
-        url: url,
-        html: result.html,
-        links: extract_urls(result.links),
-        metadata: result.metadata,
-        depth: depth
+        url:        url,
+        html:       result.html,
+        raw_text:   result.raw_text,
+        clean_text: result.clean_text,
+        clean_html: result.clean_html,
+        links:      extract_urls(result.links),
+        metadata:   result.metadata,
+        depth:      depth
       )
     end
 

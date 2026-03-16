@@ -38,10 +38,12 @@ class RubyCrawl
 
     def build_result(response)
       Result.new(
-        text: response['text'].to_s,
-        html: response['html'].to_s,
-        links: Array(response['links']),
-        metadata: response['metadata'].is_a?(Hash) ? response['metadata'] : {}
+        raw_text:   response['raw_text'].to_s,
+        clean_text: response['clean_text'].to_s,
+        clean_html: response['clean_html'].to_s,
+        html:       response['html'].to_s,
+        links:      Array(response['links']),
+        metadata:   response['metadata'].is_a?(Hash) ? response['metadata'] : {}
       )
     end
 
