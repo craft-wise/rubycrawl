@@ -1,38 +1,37 @@
 # frozen_string_literal: true
 
 class RubyCrawl
-  # Result object with lazy markdown conversion.
+  # Result object with lazy clean_markdown conversion.
   class Result
     attr_reader :text, :html, :links, :metadata
 
-    def initialize(text:, html:, links:, metadata:, markdown: nil)
+    def initialize(text:, html:, links:, metadata:)
       @text = text
       @html = html
       @links = links
       @metadata = metadata
-      @markdown = markdown unless markdown.to_s.empty?
     end
 
-    # Returns markdown, converting from HTML lazily if needed.
+    # Returns clean markdown converted from the page HTML.
     # Relative URLs are resolved using the page's final_url.
     #
     # @return [String] Markdown content with absolute URLs
-    def markdown
-      @markdown ||= MarkdownConverter.convert(html, base_url: final_url)
+    def clean_markdown
+      @clean_markdown ||= MarkdownConverter.convert(html, base_url: final_url)
     end
 
     # The final URL after redirects.
     #
     # @return [String, nil]
     def final_url
-      metadata['final_url'] || metadata[:final_url]
+      metadata['final_url']
     end
 
-    # Check if markdown has been computed.
+    # Check if clean_markdown has been computed.
     #
     # @return [Boolean]
-    def markdown?
-      !@markdown.nil?
+    def clean_markdown?
+      !@clean_markdown.nil?
     end
 
     def to_h
@@ -41,7 +40,7 @@ class RubyCrawl
         html: html,
         links: links,
         metadata: metadata,
-        markdown: markdown
+        clean_markdown: @clean_markdown
       }
     end
   end

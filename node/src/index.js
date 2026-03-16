@@ -22,10 +22,19 @@ function json(res, statusCode, body) {
   res.end(payload);
 }
 
+const MAX_BODY_SIZE = 1 * 1024 * 1024; // 1 MB
+
 function readJson(req) {
   return new Promise((resolve, reject) => {
     let data = "";
+    let size = 0;
     req.on("data", (chunk) => {
+      size += chunk.length;
+      if (size > MAX_BODY_SIZE) {
+        reject(new Error("Request body too large"));
+        req.destroy();
+        return;
+      }
       data += chunk;
     });
     req.on("end", () => {
@@ -47,7 +56,7 @@ function validateRequest(body) {
   return { ok: true };
 }
 
-let browserPromise;
+let browser = null;
 
 // Session storage: session_id -> { context, createdAt, lastUsedAt }
 const sessions = new Map();
@@ -61,11 +70,10 @@ function generateSessionId() {
   return `sess_${crypto.randomBytes(16).toString("hex")}`;
 }
 
-function getBrowser() {
-  if (!browserPromise) {
-    browserPromise = chromium.launch({ headless: true });
-  }
-  return browserPromise;
+async function getBrowser() {
+  if (browser && browser.isConnected()) return browser;
+  browser = await chromium.launch({ headless: true });
+  return browser;
 }
 
 /**
@@ -97,7 +105,9 @@ async function getContext(sessionId) {
     const now = Date.now();
     sessions.set(sessionId, { context, createdAt: now, lastUsedAt: now });
     // eslint-disable-next-line no-console
-    console.log(`[rubycrawl] session recreated ${sessionId} (was expired or destroyed)`);
+    console.log(
+      `[rubycrawl] session recreated ${sessionId} (was expired or destroyed)`,
+    );
     return { context, isSession: true };
   }
 
@@ -122,12 +132,16 @@ async function cleanupExpiredSessions() {
     await session.context.close().catch(() => {});
     sessions.delete(sessionId);
     // eslint-disable-next-line no-console
-    console.log(`[rubycrawl] session expired ${sessionId} (inactive for ${SESSION_TTL_MS / 60000} min)`);
+    console.log(
+      `[rubycrawl] session expired ${sessionId} (inactive for ${SESSION_TTL_MS / 60000} min)`,
+    );
   }
 
   if (expiredIds.length > 0) {
     // eslint-disable-next-line no-console
-    console.log(`[rubycrawl] cleanup: ${expiredIds.length} expired, ${sessions.size} active`);
+    console.log(
+      `[rubycrawl] cleanup: ${expiredIds.length} expired, ${sessions.size} active`,
+    );
   }
 }
 
@@ -187,6 +201,13 @@ async function extractLinks(page) {
   });
 }
 
+/**
+ * Extract plain text content from the page using innerText.
+ */
+async function extractText(page) {
+  return page.evaluate(() => (document.body?.innerText || "").trim());
+}
+
 async function handleCrawl(req, res) {
   let context = null;
   let isSession = false;
@@ -206,7 +227,9 @@ async function handleCrawl(req, res) {
 
     const start = Date.now();
     // eslint-disable-next-line no-console
-    console.log(`[rubycrawl] crawl start ${body.url}${body.session_id ? ` (session=${body.session_id})` : ""}`);
+    console.log(
+      `[rubycrawl] crawl start ${body.url}${body.session_id ? ` (session=${body.session_id})` : ""}`,
+    );
 
     // Get context (reuse if session_id provided)
     const ctxResult = await getContext(body.session_id);
@@ -236,6 +259,7 @@ async function handleCrawl(req, res) {
       const status = response ? response.status() : null;
       const htmlMetadata = await extractMetadata(page);
       const links = await extractLinks(page);
+      const text = await extractText(page);
 
       // eslint-disable-next-line no-console
       console.log(
@@ -246,8 +270,7 @@ async function handleCrawl(req, res) {
         ok: true,
         url: body.url,
         html,
-        text: "",
-        markdown: "",
+        text,
         links,
         metadata: {
           status,
@@ -283,13 +306,18 @@ async function handleSessionCreate(req, res) {
     sessions.set(sessionId, { context, createdAt: now, lastUsedAt: now });
 
     // eslint-disable-next-line no-console
-    console.log(`[rubycrawl] session created ${sessionId} (active=${sessions.size})`);
+    console.log(
+      `[rubycrawl] session created ${sessionId} (active=${sessions.size})`,
+    );
 
     return json(res, 200, { ok: true, session_id: sessionId });
   } catch (error) {
     // eslint-disable-next-line no-console
     console.log(`[rubycrawl] session create error ${error?.message || ""}`);
-    return json(res, 400, { error: "session_create_failed", message: error?.message });
+    return json(res, 400, {
+      error: "session_create_failed",
+      message: error?.message,
+    });
   }
 }
 
@@ -308,7 +336,10 @@ async function handleSessionDestroy(req, res) {
 
     // Idempotent: if session doesn't exist, still return success
     if (!sessions.has(sessionId)) {
-      return json(res, 200, { ok: true, message: "session already destroyed or expired" });
+      return json(res, 200, {
+        ok: true,
+        message: "session already destroyed or expired",
+      });
     }
 
     const session = sessions.get(sessionId);
@@ -322,7 +353,10 @@ async function handleSessionDestroy(req, res) {
   } catch (error) {
     // eslint-disable-next-line no-console
     console.log(`[rubycrawl] session destroy error ${error?.message || ""}`);
-    return json(res, 400, { error: "session_destroy_failed", message: error?.message });
+    return json(res, 400, {
+      error: "session_destroy_failed",
+      message: error?.message,
+    });
   }
 }
 

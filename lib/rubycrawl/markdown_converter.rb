@@ -15,10 +15,10 @@ class RubyCrawl
 
     # Convert HTML to Markdown with resolved URLs.
     #
-    # @param html [String] The HTML content to convert
+    # @param html [String] The page HTML to convert
     # @param base_url [String, nil] Base URL to resolve relative URLs
-    # @param options [Hash] Options for conversion
-    # @return [String] The Markdown content with absolute URLs
+    # @param options [Hash] Options passed to ReverseMarkdown
+    # @return [String] Markdown content with absolute URLs
     def convert(html, base_url: nil, **options)
       return '' if html.nil? || html.empty?
 

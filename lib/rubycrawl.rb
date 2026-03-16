@@ -67,10 +67,10 @@ class RubyCrawl
     build_service_client
   end
 
-  def crawl(url, wait_until: @wait_until, block_resources: @block_resources, retries: @max_retries, session_id: nil)
+  def crawl(url, wait_until: @wait_until, block_resources: @block_resources, max_attempts: @max_attempts, session_id: nil)
     validate_url!(url)
     @service_client.ensure_running
-    with_retries(retries) do
+    with_retries(max_attempts) do
       payload = build_payload(url, wait_until, block_resources, session_id)
       response = @service_client.post_json('/crawl', payload)
       raise_node_error!(response)
@@ -131,7 +131,7 @@ class RubyCrawl
     @node_log = options.fetch(:node_log, ENV.fetch('RUBYCRAWL_NODE_LOG', nil))
     @wait_until = options.fetch(:wait_until, nil)
     @block_resources = options.fetch(:block_resources, nil)
-    @max_retries = options.fetch(:max_retries, 3)
+    @max_attempts = options.fetch(:max_attempts, 3)
   end
 
   def build_service_client
@@ -144,9 +144,9 @@ class RubyCrawl
     )
   end
 
-  def retry_with_backoff(attempt, retries, error)
+  def retry_with_backoff(attempt, max_attempts, error)
     backoff_seconds = 2**attempt
-    warn "[rubycrawl] Retry #{attempt}/#{retries - 1} after #{backoff_seconds}s: #{error.message}"
+    warn "[rubycrawl] Attempt #{attempt + 1}/#{max_attempts} failed, retrying in #{backoff_seconds}s: #{error.message}"
     sleep(backoff_seconds)
   end
 
@@ -156,7 +156,8 @@ class RubyCrawl
       max_depth: options.fetch(:max_depth, 3),
       same_host_only: options.fetch(:same_host_only, true),
       wait_until: options.fetch(:wait_until, @wait_until),
-      block_resources: options.fetch(:block_resources, @block_resources)
+      block_resources: options.fetch(:block_resources, @block_resources),
+      max_attempts: options.fetch(:max_attempts, @max_attempts)
     }
   end
 

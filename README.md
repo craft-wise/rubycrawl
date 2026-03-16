@@ -1,6 +1,6 @@
 # RubyCrawl 🎭
 
-[![Gem Version](https://badge.fury.io/rb/rubycrawl.svg)](https://badge.fury.io/rb/rubycrawl)
+[![Gem Version](https://badge.fury.io/rb/rubycrawl.svg)](https://rubygems.org/gems/rubycrawl)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Ruby](https://img.shields.io/badge/ruby-%3E%3D%203.0-red.svg)](https://www.ruby-lang.org/)
 [![Node.js](https://img.shields.io/badge/node.js-18%2B-green.svg)](https://nodejs.org/)
@@ -18,6 +18,15 @@ RubyCrawl provides **accurate, JavaScript-enabled web scraping** using Playwrigh
 - ✅ **Rails-friendly** — Generators, initializers, and ActiveJob integration
 - ✅ **Modular architecture** — Clean, testable, maintainable codebase
 
+```ruby
+# One line to crawl any JavaScript-heavy site
+result = RubyCrawl.crawl("https://docs.example.com")
+
+result.html           # Full HTML with JS rendered
+result.links          # All links with metadata
+result.metadata       # Title, description, OG tags, etc.
+```
+
 ## Features
 
 - **🎭 Playwright-powered**: Real browser automation for JavaScript-heavy sites and SPAs
@@ -25,7 +34,7 @@ RubyCrawl provides **accurate, JavaScript-enabled web scraping** using Playwrigh
 - **🎯 Simple API**: Clean, minimal Ruby interface — zero Playwright or Node.js knowledge required
 - **⚡ Resource optimization**: Built-in resource blocking for 2-3x faster crawls
 - **🔄 Auto-managed browsers**: Browser process reuse and automatic lifecycle management
-- **📄 Content extraction**: HTML, links (with metadata), and lazy-loaded Markdown conversion
+- **📄 Content extraction**: HTML, plain text, links (with metadata), and **clean markdown** via HTML conversion
 - **🌐 Multi-page crawling**: BFS (breadth-first search) crawler with configurable depth limits and URL deduplication
 - **🛡️ Smart URL handling**: Automatic normalization, tracking parameter removal, and same-host filtering
 - **🔧 Rails integration**: First-class Rails support with generators and initializers
@@ -49,7 +58,6 @@ RubyCrawl provides **accurate, JavaScript-enabled web scraping** using Playwrigh
 - [Performance](#performance)
 - [Development](#development)
   - [Project Structure](#project-structure)
-- [Roadmap](#roadmap)
 - [Contributing](#contributing)
 - [Why Choose RubyCrawl?](#why-choose-rubycrawl)
 - [License](#license)
@@ -112,10 +120,11 @@ require "rubycrawl"
 result = RubyCrawl.crawl("https://example.com")
 
 # Access extracted content
-puts result.html      # Raw HTML content
-puts result.markdown  # Converted to Markdown
-puts result.links     # Extracted links from the page
-puts result.metadata  # Status code, final URL, etc.
+result.final_url       # Final URL after redirects
+result.text            # Plain text content (via innerText)
+result.html            # Raw HTML content
+result.links           # Extracted links with metadata
+result.metadata        # Title, description, OG tags, etc.
 ```
 
 ## Use Cases
@@ -139,11 +148,9 @@ The simplest way to crawl a URL:
 result = RubyCrawl.crawl("https://example.com")
 
 # Access the results
-result.html      # => "<html>...</html>"
-result.markdown  # => "# Example Domain\n\nThis domain is..." (lazy-loaded)
-result.links     # => [{ "url" => "https://...", "text" => "More info" }, ...]
-result.metadata  # => { "status" => 200, "final_url" => "https://example.com" }
-result.text      # => "" (coming soon)
+result.html            # => "<html>...</html>"
+result.text            # => "Example Domain\nThis domain is..." (plain text via innerText)
+result.metadata        # => { "status" => 200, "final_url" => "https://example.com" }
 ```
 
 ### Multi-Page Crawling
@@ -160,7 +167,7 @@ RubyCrawl.crawl_site("https://example.com", max_pages: 100, max_depth: 3) do |pa
   Page.create!(
     url: page.url,
     html: page.html,
-    markdown: page.markdown,
+    markdown: page.clean_markdown,
     depth: page.depth
   )
 end
@@ -186,7 +193,7 @@ pages_crawled = RubyCrawl.crawl_site(
   # Store in vector database for RAG
   VectorDB.upsert(
     id: Digest::SHA256.hexdigest(page.url),
-    content: page.markdown,  # Clean markdown for better embeddings
+    content: page.clean_markdown,  # Clean markdown for better embeddings
     metadata: {
       url: page.url,
       title: page.metadata["title"],
@@ -215,12 +222,12 @@ puts "Crawled #{pages_crawled} pages into knowledge base"
 The block receives a `PageResult` with:
 
 ```ruby
-page.url       # String: Final URL after redirects
-page.html      # String: Full HTML content
-page.markdown  # String: Lazy-converted Markdown
-page.links     # Array: URLs extracted from page
-page.metadata  # Hash: HTTP status, final URL, etc.
-page.depth     # Integer: Link depth from start URL
+page.url            # String: Final URL after redirects
+page.html           # String: Full HTML content
+page.clean_markdown # String: Lazy-converted Markdown
+page.links          # Array: URLs extracted from page
+page.metadata       # Hash: HTTP status, final URL, etc.
+page.depth          # Integer: Link depth from start URL
 ```
 
 ### Configuration
@@ -257,16 +264,18 @@ result = RubyCrawl.crawl(
 
 #### Configuration Options
 
-| Option            | Values                                          | Default  | Description                                       |
-| ----------------- | ----------------------------------------------- | -------- | ------------------------------------------------- |
-| `wait_until`      | `"load"`, `"domcontentloaded"`, `"networkidle"` | `"load"` | When to consider page loaded                      |
-| `block_resources` | `true`, `false`                                 | `true`   | Block images, fonts, CSS, media for faster crawls |
+| Option            | Values                                                                 | Default  | Description                                       |
+| ----------------- | ---------------------------------------------------------------------- | -------- | ------------------------------------------------- |
+| `wait_until`      | `"load"`, `"domcontentloaded"`, `"networkidle"`, `"commit"`           | `"load"` | When to consider page loaded                      |
+| `block_resources` | `true`, `false`                                                        | `true`   | Block images, fonts, CSS, media for faster crawls |
+| `max_attempts`    | Integer                                                                | `3`      | Total number of attempts (including the first)    |
 
 **Wait strategies explained:**
 
 - `load` — Wait for the load event (fastest, good for static sites)
 - `domcontentloaded` — Wait for DOM ready (medium speed)
 - `networkidle` — Wait until no network requests for 500ms (slowest, best for SPAs)
+- `commit` — Wait until the first response bytes are received (fastest possible)
 
 ### Advanced Usage
 
@@ -312,11 +321,11 @@ The crawl result is a `RubyCrawl::Result` object with these attributes:
 ```ruby
 result = RubyCrawl.crawl("https://example.com")
 
-result.html      # String: Raw HTML content from page
-result.markdown  # String: Markdown conversion (lazy-loaded on first access)
-result.links     # Array: Extracted links with url and text
-result.text      # String: Plain text (coming soon)
-result.metadata  # Hash: Comprehensive metadata (see below)
+result.html           # String: Raw HTML content from page
+result.text           # String: Plain text via document.body.innerText
+result.clean_markdown # String: Markdown conversion (lazy-loaded on first access)
+result.links          # Array: Extracted links with url and text
+result.metadata       # Hash: Comprehensive metadata (see below)
 ```
 
 #### Links Format
@@ -346,13 +355,13 @@ result.links
 
 #### Markdown Conversion
 
-Markdown is **lazy-loaded** — conversion only happens when you access `.markdown`:
+Markdown is **lazy-loaded** — conversion only happens when you access `.clean_markdown`:
 
 ```ruby
 result = RubyCrawl.crawl(url)
-result.html       # ✅ No overhead
-result.markdown   # ⬅️ Conversion happens here (first call only)
-result.markdown   # ✅ Cached, instant
+result.html           # ✅ No overhead
+result.clean_markdown # ⬅️ Conversion happens here (first call only)
+result.clean_markdown # ✅ Cached, instant
 ```
 
 Uses [reverse_markdown](https://github.com/xijo/reverse_markdown) with GitHub-flavored output.
@@ -420,12 +429,12 @@ end
   - `RubyCrawl::NavigationError` - Page navigation failed
   - `RubyCrawl::ServiceError` - Node service issues
 
-**Automatic Retry:** RubyCrawl automatically retries transient failures (service errors, timeouts) up to 3 times with exponential backoff (2s, 4s, 8s). Configure with:
+**Automatic Retry:** RubyCrawl automatically retries transient failures (service errors, timeouts) with exponential backoff. The default `max_attempts: 3` means 3 total attempts (2 retries). Configure with:
 
 ```ruby
-RubyCrawl.configure(max_retries: 5)
+RubyCrawl.configure(max_attempts: 5)
 # or per-request
-RubyCrawl.crawl(url, retries: 1)  # Disable retry
+RubyCrawl.crawl(url, max_attempts: 1)  # No retries
 ```
 
 ## Rails Integration
@@ -452,21 +461,176 @@ RubyCrawl.configure(
 
 ### Usage in Rails
 
-```ruby
-# In a controller, service, or background job
-class ContentScraperJob < ApplicationJob
-  def perform(url)
-    result = RubyCrawl.crawl(url)
+#### Basic Usage in Controllers
 
-    # Save to database
-    ScrapedContent.create!(
-      url: url,
+```ruby
+class PagesController < ApplicationController
+  def show
+    result = RubyCrawl.crawl(params[:url])
+
+    @page = Page.create!(
+      url: result.final_url,
+      title: result.metadata['title'],
       html: result.html,
-      status: result.metadata[:status]
+      text: result.text,
+      markdown: result.clean_markdown
     )
+
+    redirect_to @page
   end
 end
 ```
+
+#### Background Jobs with ActiveJob
+
+**Simple Crawl Job:**
+
+```ruby
+class CrawlPageJob < ApplicationJob
+  queue_as :crawlers
+
+  # Automatic retry with exponential backoff for transient failures
+  retry_on RubyCrawl::ServiceError, wait: :exponentially_longer, attempts: 5
+  retry_on RubyCrawl::TimeoutError, wait: :exponentially_longer, attempts: 3
+
+  # Don't retry on configuration errors (bad URLs)
+  discard_on RubyCrawl::ConfigurationError
+
+  def perform(url, user_id: nil)
+    result = RubyCrawl.crawl(url)
+
+    Page.create!(
+      url: result.final_url,
+      title: result.metadata['title'],
+      text: result.text,
+      html: result.html,
+      user_id: user_id,
+      crawled_at: Time.current
+    )
+  rescue RubyCrawl::NavigationError => e
+    # Page not found or failed to load
+    Rails.logger.warn "Failed to crawl #{url}: #{e.message}"
+    FailedCrawl.create!(url: url, error: e.message, user_id: user_id)
+  end
+end
+
+# Enqueue from anywhere
+CrawlPageJob.perform_later("https://example.com", user_id: current_user.id)
+```
+
+**Multi-Page Site Crawler Job:**
+
+```ruby
+class CrawlSiteJob < ApplicationJob
+  queue_as :crawlers
+
+  def perform(start_url, max_pages: 50)
+    pages_crawled = RubyCrawl.crawl_site(
+      start_url,
+      max_pages: max_pages,
+      max_depth: 3,
+      same_host_only: true
+    ) do |page|
+      Page.create!(
+        url: page.url,
+        title: page.metadata['title'],
+        text: page.clean_markdown, # Store markdown for RAG applications
+        depth: page.depth,
+        crawled_at: Time.current
+      )
+    end
+
+    Rails.logger.info "Crawled #{pages_crawled} pages from #{start_url}"
+  end
+end
+```
+
+**Batch Crawling Pattern:**
+
+```ruby
+class BatchCrawlJob < ApplicationJob
+  queue_as :crawlers
+
+  def perform(urls)
+    # Create session for better performance
+    session_id = RubyCrawl.create_session
+
+    begin
+      urls.each do |url|
+        result = RubyCrawl.crawl(url, session_id: session_id)
+
+        Page.create!(
+          url: result.final_url,
+          html: result.html,
+          text: result.text
+        )
+      end
+    ensure
+      # Always destroy session when done
+      RubyCrawl.destroy_session(session_id)
+    end
+  end
+end
+
+# Enqueue batch
+BatchCrawlJob.perform_later(["https://example.com", "https://example.com/about"])
+```
+
+**Periodic Crawling with Sidekiq-Cron:**
+
+```ruby
+# config/schedule.yml (for sidekiq-cron)
+crawl_news_sites:
+  cron: "0 */6 * * *"  # Every 6 hours
+  class: "CrawlNewsSitesJob"
+
+# app/jobs/crawl_news_sites_job.rb
+class CrawlNewsSitesJob < ApplicationJob
+  queue_as :scheduled_crawlers
+
+  def perform
+    Site.where(active: true).find_each do |site|
+      CrawlSiteJob.perform_later(site.url, max_pages: site.max_pages)
+    end
+  end
+end
+```
+
+**RAG/AI Knowledge Base Pattern:**
+
+```ruby
+class BuildKnowledgeBaseJob < ApplicationJob
+  queue_as :crawlers
+
+  def perform(documentation_url)
+    RubyCrawl.crawl_site(
+      documentation_url,
+      max_pages: 500,
+      max_depth: 5
+    ) do |page|
+      # Store in vector database for RAG
+      embedding = OpenAI.embed(page.clean_markdown)
+
+      Document.create!(
+        url: page.url,
+        title: page.metadata['title'],
+        content: page.clean_markdown,
+        embedding: embedding,
+        depth: page.depth
+      )
+    end
+  end
+end
+```
+
+#### Best Practices
+
+1. **Use background jobs** for crawling to avoid blocking web requests
+2. **Configure retry logic** based on error types (retry ServiceError, discard ConfigurationError)
+3. **Use sessions** for batch crawling to improve performance
+4. **Monitor job failures** and set up alerts for repeated errors
+5. **Rate limit** external crawling to be respectful (use job throttling)
+6. **Store both HTML and text** for flexibility in data processing
 
 ## Production Deployment
 
@@ -559,15 +723,6 @@ bundle exec rspec
 bin/console
 > RubyCrawl.crawl("https://example.com")
 ```
-
-### 💎 Long-term (v1.0.0)
-
-**Maturity Goals:**
-
-- [ ] Production battle-tested (1000+ stars, real-world usage)
-- [ ] Full documentation with video tutorials
-- [ ] Performance benchmarks vs. alternatives
-- [ ] Migration guides from Nokogiri, Mechanize, etc.
 
 ## Contributing
 

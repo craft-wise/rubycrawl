@@ -5,7 +5,7 @@ require 'set'
 class RubyCrawl
   # BFS crawler that follows links with deduplication.
   class SiteCrawler
-    # Page result yielded to the block with lazy markdown.
+    # Page result yielded to the block with lazy clean_markdown.
     class PageResult
       attr_reader :url, :html, :links, :metadata, :depth
 
@@ -17,14 +17,15 @@ class RubyCrawl
         @depth = depth
       end
 
-      # Lazy markdown conversion with resolved URLs.
-      def markdown
-        @markdown ||= MarkdownConverter.convert(html, base_url: final_url)
+      # Returns clean markdown converted from the page HTML.
+      # Relative URLs are resolved using the page's final_url.
+      def clean_markdown
+        @clean_markdown ||= MarkdownConverter.convert(html, base_url: final_url)
       end
 
       # The final URL after redirects.
       def final_url
-        metadata['final_url'] || metadata[:final_url] || url
+        metadata['final_url'] || url
       end
     end
 
@@ -35,6 +36,7 @@ class RubyCrawl
       @same_host_only = options.fetch(:same_host_only, true)
       @wait_until = options.fetch(:wait_until, nil)
       @block_resources = options.fetch(:block_resources, nil)
+      @max_attempts = options.fetch(:max_attempts, nil)
       @visited = Set.new
       @queue = []
       @session_id = nil
@@ -81,7 +83,9 @@ class RubyCrawl
     end
 
     def crawl_page(url, depth)
-      result = @client.crawl(url, wait_until: @wait_until, block_resources: @block_resources, session_id: @session_id)
+      opts = { wait_until: @wait_until, block_resources: @block_resources, session_id: @session_id }
+      opts[:max_attempts] = @max_attempts if @max_attempts
+      result = @client.crawl(url, **opts)
       build_page_result(url, depth, result)
     rescue Error => e
       warn "[rubycrawl] Failed to crawl #{url}: #{e.message}"

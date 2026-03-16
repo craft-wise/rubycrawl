@@ -73,9 +73,13 @@ class RubyCrawl
       raise ServiceError, "rubycrawl node service directory not found: #{@node_dir}" unless Dir.exist?(@node_dir)
 
       env = { 'RUBYCRAWL_NODE_PORT' => @port.to_s }
-      out = @node_log ? File.open(@node_log, 'a') : File::NULL
-      err = @node_log ? out : File::NULL
-      @node_pid = Process.spawn(env, @node_bin, 'src/index.js', chdir: @node_dir, out: out, err: err)
+      if @node_log
+        out = File.open(@node_log, 'a')
+        @node_pid = Process.spawn(env, @node_bin, 'src/index.js', chdir: @node_dir, out: out, err: out)
+        out.close
+      else
+        @node_pid = Process.spawn(env, @node_bin, 'src/index.js', chdir: @node_dir, out: File::NULL, err: File::NULL)
+      end
       Process.detach(@node_pid)
     end
 
