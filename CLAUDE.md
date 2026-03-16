@@ -2,481 +2,297 @@
 
 ## Project Overview
 
-**rubycrawl** is an open-source, production-ready web crawler for Ruby that uses Playwright for browser automation. Designed idiomatically for Ruby with first-class Rails support, it brings the power of modern browser automation to the Ruby ecosystem.
+**rubycrawl** is an open-source Ruby gem for crawling websites with full JavaScript rendering, designed for RAG (Retrieval-Augmented Generation) pipelines and general developer use. It uses [Ferrum](https://github.com/rubycdp/ferrum) (pure Ruby Chrome DevTools Protocol client) for browser automation — no Node.js, no external processes.
 
 ### Key Characteristics
 
-- **Dual-process architecture**: Ruby (orchestration) + Node.js (browser automation)
-- **Production-focused**: Built for stability, observability, and real-world deployment
-- **Developer-friendly**: Simple API that hides Playwright complexity
-- **Open source**: MIT licensed, no vendor lock-in, no SaaS components
+- **Pure Ruby**: Ferrum drives Chromium directly via CDP — no Node.js dependency
+- **RAG-first**: Output is designed for LLM pipelines (`clean_text`, `clean_markdown`, metadata)
+- **Developer-friendly**: One-line API that hides browser complexity
+- **Rails-native**: ActiveJob patterns, initializer, rake tasks
+- **Open source**: MIT licensed, no vendor lock-in
 
-## Architecture at a Glance
+### Who uses this
+
+1. Developers building RAG chatbots who need clean text from any URL
+2. Ruby/Rails developers who need a simple, modern web crawler with JS support
+
+---
+
+## Architecture
 
 ```
-Ruby Gem (lib/rubycrawl.rb)
-  ↓ HTTP/JSON (localhost:3344)
-Node Service (node/src/index.js)
-  ↓ Playwright API
-Chromium Browser (managed by Playwright)
+RubyCrawl (lib/rubycrawl.rb)       ← public API
+  ↓
+Browser (lib/rubycrawl/browser.rb) ← Ferrum wrapper, all browser logic lives here
+  ↓
+Ferrum::Browser                    ← Chrome DevTools Protocol (pure Ruby)
+  ↓
+Chromium                           ← headless browser (managed by Ferrum)
 ```
 
-**Why this architecture?**
-- Stability: Playwright's Node.js bindings are most mature
-- Isolation: Browser crashes don't kill Ruby process
-- Simplicity: HTTP is easy to debug and understand
-
-## When Working on This Project
-
-### Understanding the Codebase
-
-1. **Start with the public API** ([lib/rubycrawl.rb](lib/rubycrawl.rb)):
-   - `RubyCrawl.crawl(url, **options)` — main entry point
-   - `RubyCrawl.configure(**defaults)` — global config
-   - `RubyCrawl::Result` — return value struct
-
-2. **Then examine the Node service** ([node/src/index.js](node/src/index.js)):
-   - `/crawl` endpoint — does the actual Playwright work
-   - `/health` endpoint — health checks
-   - Browser singleton pattern
-
-3. **Check the Rails integration** ([lib/rubycrawl/railtie.rb](lib/rubycrawl/railtie.rb)):
-   - Rake tasks for installation
-   - Initializer generation
-
-4. **Core modules** (lib/rubycrawl/):
-   - `errors.rb` — Custom exception hierarchy (Error, ServiceError, NavigationError, TimeoutError, ConfigurationError)
-   - `helpers.rb` — URL validation, payload building, error class mapping
-   - `service_client.rb` — Node service lifecycle (start, health check) and HTTP communication
-   - `result.rb` — Result object with lazy markdown conversion
-   - `url_normalizer.rb` — URL normalization, deduplication, tracking param removal
-   - `markdown_converter.rb` — HTML to Markdown conversion using reverse_markdown
-   - `site_crawler.rb` — BFS multi-page crawler with depth limits
-
-### Making Changes
-
-#### Ruby Code Guidelines
-
-- **Keep it simple**: Prefer explicit code over metaprogramming
-- **Hide complexity**: Don't expose Playwright concepts to users
-- **Return rich objects**: Use `Result` struct, not hashes
-- **Handle errors gracefully**: Wrap Node errors in meaningful Ruby exceptions
-
-Example of good error handling:
-```ruby
-if response.is_a?(Hash) && response["error"]
-  raise RubyCrawl::CrawlError, "Crawl failed: #{response['message']}"
-end
-```
-
-#### Node.js Code Guidelines
-
-- **Stateless requests**: Each `/crawl` request is independent
-- **Stateful process**: Browser lives across requests
-- **Always cleanup**: Close pages in `finally` blocks
-- **Return JSON only**: Never return HTML or plain text responses
-
-Example of good resource management:
-```javascript
-const page = await context.newPage();
-try {
-  // Do work
-  return json(res, 200, { ok: true, html: await page.content() });
-} finally {
-  await page.close();  // Always cleanup
-}
-```
-
-#### Session Management
-
-Sessions allow reusing browser contexts across multiple crawls:
-
-**How it works:**
-- `/session/create` — Creates a new browser context, returns session_id
-- `/crawl` with `session_id` — Reuses existing context (cookies/storage persist)
-- `/session/destroy` — Closes context and removes from memory
-- Automatic TTL: Sessions expire after 30 min of inactivity
-- Automatic cleanup: Every 5 minutes, expired sessions are removed
-
-**Session ID generation:**
-```javascript
-function generateSessionId() {
-  return `sess_${crypto.randomBytes(16).toString("hex")}`;
-}
-```
-
-**Auto-recreation on retry:**
-If a session_id is provided but doesn't exist (expired/destroyed), the Node service automatically recreates it. This makes job retries seamless.
-
-**Resource management:**
-- One-off crawls (no session_id): Context created and destroyed per request
-- Session crawls: Context reused across multiple requests
-- Multi-page `crawl_site`: Automatically creates/destroys session internally
-
-#### Testing Expectations
-
-- **Ruby tests**: Fast unit tests that mock Node responses
-- **No browser tests in Ruby**: Don't test Playwright behavior
-- **Test error paths**: Errors are first-class citizens
-
-Example test structure:
-```ruby
-RSpec.describe RubyCrawl do
-  describe ".crawl" do
-    it "returns a Result with html content"
-    it "raises error when Node service returns error"
-    it "merges global config with request options"
-  end
-end
-```
-
-### Common Tasks
-
-#### Adding a New Configuration Option
-
-1. Add parameter to Ruby API:
-   ```ruby
-   def crawl(url, wait_until: @wait_until, new_option: @new_option)
-     payload = { url: url }
-     payload[:new_option] = new_option if new_option
-     # ...
-   end
-   ```
-
-2. Handle in Node service:
-   ```javascript
-   const newOption = body.new_option || DEFAULT_VALUE;
-   // Use the option
-   ```
-
-3. Document in README and copilot-instructions.md
-
-4. Add tests for the new option
-
-#### Adding Content Extraction Features
-
-We extract HTML, links, and metadata. Links and metadata are extracted in Node.js:
-
-**Current implementation:**
-- HTML extraction: `page.content()`
-- Link extraction: `extractLinks(page)` — returns array of `{url, text, title, rel}`
-- Metadata extraction: `extractMetadata(page)` — returns OG tags, Twitter cards, title, description, etc.
-- Markdown conversion: Done in Ruby using `reverse_markdown` gem (lazy-loaded)
-
-**To add new features (e.g., plain text):**
-
-1. **Implement in Node first** (faster iteration):
-   ```javascript
-   async function extractText(page) {
-     return page.evaluate(() => document.body.innerText);
-   }
-
-   // In handleCrawl:
-   const text = await extractText(page);
-   return json(res, 200, {
-     ok: true,
-     html,
-     text,  // Now populated
-     links,
-     // ...
-   });
-   ```
-
-2. **Update Ruby Result class** (lib/rubycrawl/result.rb):
-   ```ruby
-   class Result
-     attr_reader :text, :html, :links, :metadata
-
-     def initialize(text:, html:, links:, metadata:)
-       @text = text  # Now populated from Node
-       # ...
-     end
-   end
-   ```
-
-3. **Update tests and docs**
-
-#### Debugging Issues
-
-**Node service not starting:**
-- Check: Is Node.js installed? (`which node`)
-- Check: Is Node service directory present?
-- Check: Are npm dependencies installed?
-- Look at: `ENV["RUBYCRAWL_NODE_LOG"]` if set
-
-**Crawl timing out:**
-- Check: Network connectivity to target URL
-- Try: Increasing timeout in `page.goto()`
-- Try: Different `wait_until` strategy
-- Look at: Node service logs
-
-**Memory issues:**
-- Check: Are pages being closed after crawls?
-- Check: Is context being cleaned up?
-- Try: Restart Node service (future: add endpoint)
-
-### Code Review Checklist
-
-When reviewing or writing code:
-
-- [ ] Public API is clean and Ruby-idiomatic?
-- [ ] Playwright complexity is hidden from users?
-- [ ] Errors include helpful context?
-- [ ] Resources are cleaned up (pages, contexts)?
-- [ ] Changes are backward compatible (or major bump)?
-- [ ] README is updated if API changed?
-- [ ] Tests cover new behavior?
-- [ ] Logs include useful debugging info?
-
-## Design Philosophy
-
-### What We Value
-
-1. **Correctness over Speed**: A slow but correct crawl beats a fast but wrong one
-2. **Stability over Features**: Production reliability matters more than feature count
-3. **Simplicity over Cleverness**: Code should be boring and maintainable
-4. **Observability over Opacity**: Make failures easy to diagnose
-5. **Contributor-Friendly**: Assume contributors know Ruby, not Node.js
-
-### What We Avoid
-
-- **Magic**: No DSLs, no metaprogramming unless it dramatically improves UX
-- **Premature Optimization**: Profile first, optimize second
-- **Feature Creep**: Keep scope focused on web crawling
-- **Vendor Lock-in**: No proprietary dependencies or cloud services
-- **Clever JavaScript**: Keep Node code simple and well-commented
-
-## Current Status (v0.1.0)
-
-### What Works
-
-- ✅ HTML extraction
-- ✅ Link extraction with url, text, title, rel attributes
-- ✅ Markdown conversion (lazy-loaded with reverse_markdown)
-- ✅ Multi-page crawling with BFS algorithm
-- ✅ Session management for preserving browser state across crawls
-- ✅ URL normalization and deduplication
-- ✅ HTML metadata (status, final URL, OG tags, Twitter cards, etc.)
-- ✅ Resource blocking for performance
-- ✅ Auto-start Node service
-- ✅ Custom exception hierarchy
-- ✅ Automatic retry with exponential backoff
-- ✅ Rails integration and generators
-- ✅ Health checks
-
-### What's Coming (Roadmap)
-
-**v0.2.0** (Next):
-- Screenshot capture (full page, element) - Returns base64 or saves to file
-- Plain text extraction - `result.text` with actual DOM innerText
-- Rails/ActiveJob documentation - Background job patterns and examples
-
-**v0.3.0** (Future):
-- User Agent customization - `user_agent: "MyBot/1.0"`
-- Custom request headers - `headers: { "Authorization" => "Bearer ..." }`
-- Configurable timeout - `timeout: 60_000` (override default 30s)
-- Proxy support - `proxy: "http://proxy:8080"`
-
-**Philosophy Note:** RubyCrawl is focused on **crawling public websites**. For interactive features (click, scroll, forms, custom JavaScript execution, PDF generation), users should use [Playwright Ruby bindings](https://github.com/YusukeIwaki/playwright-ruby-client) directly.
-
-**v1.0.0** (Stable):
-- Production battle-tested
-- Full documentation
-- Performance benchmarks
-- Migration guide from other crawlers
-
-## Anti-Patterns to Avoid
-
-### In Ruby Code
-
-❌ **Don't** call Playwright directly:
-```ruby
-# Bad - creates tight coupling
-browser = Playwright::Browser.new
-page = browser.new_page
-```
-
-✅ **Do** use the Node service:
-```ruby
-# Good - uses our abstraction
-result = RubyCrawl.crawl(url)
-```
-
-❌ **Don't** parse HTML in the gem (yet):
-```ruby
-# Bad - Ruby HTML parsing is for later
-doc = Nokogiri::HTML(result.html)
-```
-
-✅ **Do** return raw HTML for now:
-```ruby
-# Good - users can parse as they wish
-result.html  # Raw HTML string
-```
-
-### In Node Code
-
-❌ **Don't** implement business logic:
-```javascript
-// Bad - this is user's responsibility
-if (html.includes("product")) {
-  return { type: "product_page" };
-}
-```
-
-✅ **Do** extract raw data only:
-```javascript
-// Good - return raw HTML, let user interpret
-return {
-  html: await page.content(),
-  metadata: { status: response.status() }
-};
-```
-
-❌ **Don't** persist state across requests:
-```javascript
-// Bad - creates hidden state
-const globalCache = {};
-globalCache[url] = result;
-```
-
-✅ **Do** keep requests stateless:
-```javascript
-// Good - each request is independent
-const page = await context.newPage();
-try {
-  // Process request
-} finally {
-  await page.close();  // Clean slate
-}
-```
-
-## Working with Claude Code
-
-### Effective Prompts
-
-**Good prompts:**
-- "Add link extraction to the crawl result"
-- "Improve error messages when Node service fails to start"
-- "Add configuration option for custom timeout"
-- "Update README with Docker deployment example"
-
-**Prompts that need clarification:**
-- "Make it faster" → Ask: Which part? What's the current bottleneck?
-- "Add authentication" → Ask: What type? OAuth, basic auth, cookies?
-- "Fix the bug" → Ask: Which bug? What's the symptom?
-
-### When to Ask Questions
-
-Ask the user for clarification when:
-- **Architecture changes**: "Should we extract links in Node or Ruby?"
-- **Breaking changes**: "This would change the API. Bump to v1.0.0?"
-- **Multiple approaches**: "Use Nokogiri or keep extraction in Node?"
-- **Unclear requirements**: "What format for markdown conversion?"
-
-### When to Be Proactive
-
-Make decisions yourself when:
-- **Code style**: Follow existing patterns
-- **Error handling**: Add helpful error messages
-- **Documentation**: Update docs for API changes
-- **Testing**: Add tests for new features
-- **Logging**: Add debug logs for observability
-
-## File Structure Reference
+**Why Ferrum over Node.js/Playwright?**
+- Pure Ruby — deploys like any other gem, no npm/Node required
+- Same Chrome DevTools Protocol under the hood — identical rendering quality
+- One runtime to debug instead of two
+- Each `Ferrum::Browser` instance is independent — no shared process/port conflicts
+
+---
+
+## File Structure
 
 ```
 rubycrawl/
 ├── lib/
-│   ├── rubycrawl.rb                  # Main gem, public API, orchestration
+│   ├── rubycrawl.rb                  # Public API, configuration, orchestration
 │   └── rubycrawl/
 │       ├── version.rb                # Gem version (SemVer)
-│       ├── errors.rb                 # Custom exception hierarchy
-│       ├── helpers.rb                # Validation, payload building, error mapping
-│       ├── service_client.rb         # Node service lifecycle & HTTP client
-│       ├── url_normalizer.rb         # URL normalization & deduplication
-│       ├── markdown_converter.rb     # HTML → Markdown conversion
-│       ├── result.rb                 # Result object with lazy markdown
-│       ├── site_crawler.rb           # BFS multi-page crawler
+│       ├── errors.rb                 # Exception hierarchy
+│       ├── helpers.rb                # URL validation, payload building, error mapping
+│       ├── browser.rb                # Ferrum wrapper — all browser interaction
+│       ├── url_normalizer.rb         # URL normalization, deduplication, tracking param removal
+│       ├── markdown_converter.rb     # HTML → Markdown (reverse_markdown, lazy)
+│       ├── result.rb                 # Result object with lazy clean_markdown
+│       ├── site_crawler.rb           # BFS multi-page crawler with depth limits
 │       ├── railtie.rb                # Rails integration
 │       └── tasks/
 │           └── install.rake          # `rake rubycrawl:install`
-├── node/
-│   ├── src/
-│   │   └── index.js                  # HTTP service + Playwright
-│   ├── package.json                  # Node dependencies
-│   └── README.md                     # Node service docs
 ├── spec/
 │   ├── rubycrawl_spec.rb             # RSpec tests
 │   └── spec_helper.rb
 ├── .github/
-│   └── copilot-instructions.md       # GitHub Copilot guide
+│   └── copilot-instructions.md
 ├── CLAUDE.md                         # This file
 ├── README.md                         # User-facing documentation
-├── rubycrawl.gemspec                 # Gem specification
-└── Rakefile                          # Rake tasks
+├── rubycrawl.gemspec
+└── Rakefile
 ```
 
-## Quick Reference Commands
+---
 
-### Development
+## Understanding the Codebase
+
+### Public API (`lib/rubycrawl.rb`)
+
+```ruby
+RubyCrawl.crawl(url, **options)                  # → Result
+RubyCrawl.crawl_site(url, **options) { |page| }  # → Integer (pages crawled)
+RubyCrawl.configure(**defaults)
+```
+
+Configuration options:
+- `wait_until` — `:load` (default), `:networkidle`, `:domcontentloaded`
+- `block_resources` — true/false (blocks images/fonts/CSS, default: nil)
+- `max_attempts` — retry count (default: 3)
+- `timeout` — browser timeout in seconds (default: 30)
+
+### Browser (`lib/rubycrawl/browser.rb`)
+
+The core of the gem. Wraps Ferrum and owns all browser interaction:
+- Launches a single `Ferrum::Browser` instance (singleton, lazy)
+- Creates isolated page contexts per crawl (or reuses session contexts)
+- Runs JS extraction via `page.evaluate()` — metadata, links, raw text, clean content
+- Handles resource blocking via `page.network.intercept`
+- Maps Ferrum exceptions to rubycrawl's error hierarchy
+
+**Content extraction JS constants** live in `lib/rubycrawl/browser/extraction.rb`:
+- `EXTRACT_METADATA_JS` — OG tags, Twitter cards, title, description, canonical, lang
+- `EXTRACT_LINKS_JS` — all `a[href]` with url/text/title/rel
+- `EXTRACT_RAW_TEXT_JS` — `body.innerText` as unfiltered plain text
+- `EXTRACT_CONTENT_JS` — noise-stripping (removes nav/header/footer/aside + link-density heuristic), returns `{ cleanHtml }`
+
+All constants are IIFEs (`(() => { ... })()`) — required because `Ferrum#page.evaluate` evaluates an expression, not a function definition.
+
+### Result (`lib/rubycrawl/result.rb`)
+
+Immutable value object returned from every crawl:
+- `result.html` — full raw HTML
+- `result.raw_text` — unfiltered `body.innerText`
+- `result.clean_text` — noise-stripped plain text (ready for RAG chunking)
+- `result.clean_html` — noise-stripped HTML
+- `result.clean_markdown` — lazy: computed from `clean_html` on first access
+- `result.links` — array of `{ 'url', 'text', 'title', 'rel' }` hashes
+- `result.metadata` — status, final_url, og_*, twitter_*, canonical, lang, charset
+- `result.final_url` — shortcut for `metadata['final_url']`
+
+### SiteCrawler (`lib/rubycrawl/site_crawler.rb`)
+
+BFS multi-page crawler:
+- Takes a `RubyCrawl` client instance and options
+- Yields `SiteCrawler::PageResult` (same interface as `Result` + `depth` attribute)
+- Each page gets its own isolated browser context via `Browser#crawl`
+- Deduplicates via `Set` of normalized URLs
+- Handles redirects: marks `final_url` as visited
+- Silently skips failed pages (logs warning), continues crawling
+
+### UrlNormalizer (`lib/rubycrawl/url_normalizer.rb`)
+
+- Lowercases scheme/host, removes fragments, removes trailing slashes
+- Strips tracking params: `utm_*`, `fbclid`, `gclid`
+- Sorts query params for canonical form
+- Resolves relative URLs against a base URL
+- `same_host?` treats www and non-www as the same host
+
+---
+
+## Making Changes
+
+### Adding a new extraction field
+
+1. Add the JS to the relevant constant in `browser.rb`:
+   ```ruby
+   EXTRACT_METADATA_JS = <<~JS
+     (() => {
+       // add new field here
+       return { ..., newField: document.querySelector('...') };
+     })()
+   JS
+   ```
+
+2. Map it in `browser.rb`'s `extract_all` method
+
+3. Add `attr_reader` to `Result` and `SiteCrawler::PageResult`
+
+4. Update `Result#to_h` and `Result#initialize`
+
+5. Add tests and update README
+
+### Adding a new configuration option
+
+1. Add keyword arg to `RubyCrawl#crawl` and `RubyCrawl#load_options`
+2. Pass it through to `Browser` in the options hash
+3. Handle it in `Browser#crawl`
+4. Document in README
+
+---
+
+## Testing
+
+- **Unit tests**: Mock `Ferrum::Browser`/`Ferrum::Page` — fast, no network, no browser
+- **Integration tests**: Real browser, tagged `:integration`, only run with `INTEGRATION=1`
+- Test error paths thoroughly — errors are first-class citizens
+- `UrlNormalizer` and `SiteCrawler` should have dedicated unit tests
+
+```bash
+bundle exec rspec                        # unit tests only
+INTEGRATION=1 bundle exec rspec         # all tests including browser
+```
+
+---
+
+## Error Hierarchy
+
+```
+StandardError
+  └── RubyCrawl::Error
+        ├── ServiceError      — browser failed to start or crashed
+        ├── NavigationError   — page navigation failed (bad URL, timeout, HTTP error)
+        ├── TimeoutError      — page load timed out
+        └── ConfigurationError — invalid URL or option value
+```
+
+Map Ferrum exceptions in `browser.rb`:
+- `Ferrum::TimeoutError` → `RubyCrawl::TimeoutError`
+- `Ferrum::StatusError` → `RubyCrawl::NavigationError`
+- `Ferrum::NodeNotFoundError` → `RubyCrawl::NavigationError`
+- `Ferrum::Error` (base) → `RubyCrawl::ServiceError`
+
+---
+
+## Design Philosophy
+
+1. **RAG-first output**: `clean_text` and `clean_markdown` are the primary outputs — optimised for LLM consumption, not raw HTML
+2. **Correctness over speed**: A slow but correct crawl beats a fast but wrong one
+3. **Hide browser complexity**: Users should never need to know Ferrum exists
+4. **Pure Ruby**: No external runtime dependencies beyond Chrome (managed by Ferrum)
+5. **Simplicity over cleverness**: Boring, readable code
+
+### What belongs in this gem
+
+- Crawling public websites and extracting clean content
+- BFS multi-page crawling with deduplication
+- RAG-ready output (clean text, markdown, metadata)
+- Rails integration (ActiveJob patterns, initializer)
+
+### What does NOT belong in this gem
+
+- Interactive browser automation (clicking, scrolling, form filling) — use Ferrum directly
+- Screenshot capture / PDF generation — use Ferrum directly
+- Authenticated crawling (OAuth flows) — out of scope
+- JavaScript execution on behalf of users — out of scope
+
+---
+
+## Roadmap
+
+### v0.2.0 — Ferrum migration ✅ (released)
+- Dropped Node.js/Playwright entirely
+- Pure Ruby via Ferrum
+- `clean_text` now derived from `clean_html` (consistent with `clean_markdown`)
+- Updated Rails install task (no npm required)
+
+### v0.3.0 — Content quality
+- Replace link-density heuristic with Mozilla Readability.js (via `page.evaluate`)
+- `result.chunks` — split `clean_text` into overlapping chunks for embedding
+- `result.structured` — extract tables, code blocks, headings as structured data
+
+### v0.4.0 — Performance
+- HTTP-only mode via Mechanize (`mode: :http`) for static/non-JS sites
+- Configurable `crawl_delay` between requests
+- Parallel page loading in `crawl_site` via thread pool
+
+### v0.5.0 — Production features
+- `robots.txt` parsing and respect
+- Rate limiting per domain
+- Custom `User-Agent` and request headers
+- Proxy support
+
+### v1.0.0 — Stable
+- Production battle-tested
+- Full documentation and benchmarks
+- Migration guide from Mechanize/Kimurai
+
+---
+
+## Code Review Checklist
+
+- [ ] Public API is clean and Ruby-idiomatic?
+- [ ] Ferrum complexity is hidden from users?
+- [ ] All browser resources cleaned up (pages closed in ensure blocks)?
+- [ ] Ferrum exceptions mapped to rubycrawl error hierarchy?
+- [ ] Changes backward compatible (or version bump justified)?
+- [ ] README updated if API changed?
+- [ ] Tests cover new behaviour including error paths?
+
+---
+
+## Quick Reference
 
 ```bash
 # Setup
 bin/setup
 
-# Run tests
+# Run unit tests
 bundle exec rspec
+
+# Run all tests (requires Chrome)
+INTEGRATION=1 bundle exec rspec
+
+# Install Chrome for Ferrum
+bundle exec rake rubycrawl:install
 
 # Manual testing
 bin/console
 > RubyCrawl.crawl("https://example.com")
+> RubyCrawl.crawl("https://example.com").clean_text
+> RubyCrawl.crawl("https://example.com").clean_markdown
 ```
-
-### Installation
-
-```bash
-# Install Playwright browsers
-bundle exec rake rubycrawl:install
-
-# Check Node service manually
-cd node && npm start
-```
-
-### Debugging
-
-```bash
-# Enable Node service logs
-export RUBYCRAWL_NODE_LOG=/tmp/rubycrawl.log
-
-# Check if Node service is running
-curl http://localhost:3344/health
-
-# Manual crawl request
-curl -X POST http://localhost:3344/crawl \
-  -H "Content-Type: application/json" \
-  -d '{"url":"https://example.com"}'
-```
-
-## Getting Help
-
-- **Architecture questions**: See [.github/copilot-instructions.md](.github/copilot-instructions.md)
-- **Playwright docs**: https://playwright.dev/
-- **Ruby style guide**: https://rubystyle.guide/
-- **SemVer**: https://semver.org/
-
-## Contributing
-
-When contributing to rubycrawl:
-
-1. **Read the copilot instructions**: Understand the architecture
-2. **Start small**: Fix a bug or improve docs before adding features
-3. **Ask questions**: Use GitHub Discussions for design questions
-4. **Write tests**: All new code needs tests
-5. **Update docs**: Keep README and comments in sync
-6. **Follow conventions**: Match existing code style
-7. **Be kind**: Assume positive intent, help others learn
 
 ---
 
-**Remember**: We're building a tool that Ruby developers will rely on in production. Stability, clarity, and good documentation matter more than clever code or bleeding-edge features.
+## Reference
+
+- [Ferrum docs](https://github.com/rubycdp/ferrum)
+- [Chrome DevTools Protocol](https://chromedevtools.github.io/devtools-protocol/)
+- [Ruby style guide](https://rubystyle.guide/)
+- [SemVer](https://semver.org/)

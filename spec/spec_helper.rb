@@ -9,7 +9,7 @@ RSpec.configure do |config|
     c.syntax = :expect
   end
 
-  # Integration tests require a live Node service and network.
-  # Run them explicitly with: bundle exec rspec --tag integration
+  # Integration tests require a live Chrome browser and network.
+  # Run them explicitly with: INTEGRATION=1 bundle exec rspec
   config.filter_run_excluding :integration unless ENV['INTEGRATION']
 end

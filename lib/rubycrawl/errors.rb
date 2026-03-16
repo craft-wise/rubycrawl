@@ -4,7 +4,7 @@ class RubyCrawl
   # Base error class for all RubyCrawl errors
   class Error < StandardError; end
 
-  # Raised when the Node.js service fails to start or is unavailable
+  # Raised when the browser fails to launch or is unavailable
   class ServiceError < Error; end
 
   # Raised when page navigation fails (timeout, DNS, SSL, etc.)

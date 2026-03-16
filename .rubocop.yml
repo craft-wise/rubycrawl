@@ -1,6 +1,35 @@
 AllCops:
   NewCops: enable
   TargetRubyVersion: 3.0
+  SuggestExtensions: false
+  Exclude:
+    - 'bin/**/*'
+
+# ── Layout ────────────────────────────────────────────────────────────────────
 
 Layout/LineLength:
   Max: 120
+
+# Allow table-style alignment (keys AND values aligned) for config-like hashes:
+#   timeout:         @timeout,
+#   headless:        @headless,
+#   browser_options: @browser_options
+Layout/HashAlignment:
+  EnforcedColonStyle: table
+  EnforcedHashRocketStyle: table
+
+# ── Metrics ───────────────────────────────────────────────────────────────────
+
+# Default 10 is too strict for well-structured methods in a crawling gem.
+Metrics/MethodLength:
+  Max: 20
+
+# Data structs (PageResult, Result) legitimately need more than 5 keyword params.
+Metrics/ParameterLists:
+  Max: 8
+
+# Rake tasks and RSpec describe blocks are inherently long.
+Metrics/BlockLength:
+  Exclude:
+    - 'lib/**/*.rake'
+    - 'spec/**/*_spec.rb'

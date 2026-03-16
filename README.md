@@ -3,47 +3,45 @@
 [![Gem Version](https://badge.fury.io/rb/rubycrawl.svg)](https://rubygems.org/gems/rubycrawl)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Ruby](https://img.shields.io/badge/ruby-%3E%3D%203.0-red.svg)](https://www.ruby-lang.org/)
-[![Node.js](https://img.shields.io/badge/node.js-18%2B-green.svg)](https://nodejs.org/)
 
-**Production-ready web crawler for Ruby powered by Playwright** — Bringing the power of modern browser automation to the Ruby ecosystem with first-class Rails support.
+**Production-ready web crawler for Ruby powered by Ferrum** — Full JavaScript rendering via Chrome DevTools Protocol, with first-class Rails support and no Node.js dependency.
 
-RubyCrawl provides **accurate, JavaScript-enabled web scraping** using Playwright's battle-tested browser automation, wrapped in a clean Ruby API. Perfect for extracting content from modern SPAs, dynamic websites, and building RAG knowledge bases.
+RubyCrawl provides **accurate, JavaScript-enabled web scraping** using a pure Ruby browser automation stack. Perfect for extracting content from modern SPAs, dynamic websites, and building RAG knowledge bases.
 
 **Why RubyCrawl?**
 
 - ✅ **Real browser** — Handles JavaScript, AJAX, and SPAs correctly
-- ✅ **Zero config** — Works out of the box, no Playwright knowledge needed
+- ✅ **Pure Ruby** — No Node.js, no npm, no external processes to manage
+- ✅ **Zero config** — Works out of the box, no Ferrum knowledge needed
 - ✅ **Production-ready** — Auto-retry, error handling, resource optimization
 - ✅ **Multi-page crawling** — BFS algorithm with smart URL deduplication
 - ✅ **Rails-friendly** — Generators, initializers, and ActiveJob integration
-- ✅ **Modular architecture** — Clean, testable, maintainable codebase
 
 ```ruby
 # One line to crawl any JavaScript-heavy site
 result = RubyCrawl.crawl("https://docs.example.com")
 
 result.html           # Full HTML with JS rendered
-result.clean_text        # Smart-extracted text (hero, main body, headings — no nav/ads)
-result.links          # All links with metadata
+result.clean_text     # Noise-stripped plain text (no nav/footer/ads)
+result.clean_markdown # Markdown ready for RAG pipelines
+result.links          # All links with url, text, title, rel
 result.metadata       # Title, description, OG tags, etc.
 ```
 
 ## Features
 
-- **🎭 Playwright-powered**: Real browser automation for JavaScript-heavy sites and SPAs
-- **🚀 Production-ready**: Designed for Rails apps and production environments with auto-retry and error handling
-- **🎯 Simple API**: Clean, minimal Ruby interface — zero Playwright or Node.js knowledge required
-- **⚡ Resource optimization**: Built-in resource blocking for 2-3x faster crawls
-- **🔄 Auto-managed browsers**: Browser process reuse and automatic lifecycle management
-- **📄 Content extraction**: HTML, plain text, links (with metadata), and **clean markdown** via HTML conversion
-- **🌐 Multi-page crawling**: BFS (breadth-first search) crawler with configurable depth limits and URL deduplication
-- **🛡️ Smart URL handling**: Automatic normalization, tracking parameter removal, and same-host filtering
-- **🔧 Rails integration**: First-class Rails support with generators and initializers
-- **💎 Modular design**: Clean separation of concerns with focused, testable modules
+- **Pure Ruby**: Ferrum drives Chromium directly via CDP — no Node.js or npm required
+- **Production-ready**: Designed for Rails apps with auto-retry and exponential backoff
+- **Simple API**: Clean Ruby interface — zero Ferrum or CDP knowledge required
+- **Resource optimization**: Built-in resource blocking for 2-3x faster crawls
+- **Auto-managed browsers**: Lazy Chrome singleton, isolated page per crawl
+- **Content extraction**: HTML, plain text, clean HTML, Markdown (lazy), links, metadata
+- **Multi-page crawling**: BFS crawler with configurable depth limits and URL deduplication
+- **Smart URL handling**: Automatic normalization, tracking parameter removal, same-host filtering
+- **Rails integration**: First-class Rails support with generators and initializers
 
 ## Table of Contents
 
-- [Features](#features)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [Use Cases](#use-cases)
@@ -58,18 +56,15 @@ result.metadata       # Title, description, OG tags, etc.
 - [Architecture](#architecture)
 - [Performance](#performance)
 - [Development](#development)
-  - [Project Structure](#project-structure)
 - [Contributing](#contributing)
-- [Why Choose RubyCrawl?](#why-choose-rubycrawl)
 - [License](#license)
-- [Support](#support)
 
 ## Installation
 
 ### Requirements
 
 - **Ruby** >= 3.0
-- **Node.js** LTS (v18+ recommended) — required for the bundled Playwright service
+- **Chrome or Chromium** — managed automatically by Ferrum (downloaded on first use)
 
 ### Add to Gemfile
 
@@ -83,9 +78,9 @@ Then install:
 bundle install
 ```
 
-### Install Playwright browsers
+### Install Chrome
 
-After bundling, install the Playwright browsers:
+Ferrum manages Chrome automatically. Run the install task to verify Chrome is available and generate a Rails initializer:
 
 ```bash
 bundle exec rake rubycrawl:install
@@ -93,24 +88,10 @@ bundle exec rake rubycrawl:install
 
 This command:
 
-- ✅ Installs Node.js dependencies in the bundled `node/` directory
-- ✅ Downloads Playwright browsers (Chromium, Firefox, WebKit) — ~300MB download
+- ✅ Checks for Chrome/Chromium in your PATH
 - ✅ Creates a Rails initializer (if using Rails)
 
-**Note:** You only need to run this once. The installation task is idempotent and safe to run multiple times.
-
-**Troubleshooting installation:**
-
-```bash
-# If installation fails, check Node.js version
-node --version  # Should be v18+ LTS
-
-# Enable verbose logging
-RUBYCRAWL_NODE_LOG=/tmp/rubycrawl.log bundle exec rake rubycrawl:install
-
-# Check installation status
-cd node && npm list
-```
+**Note:** If Chrome is not in your PATH, install it via your system package manager or download from [google.com/chrome](https://www.google.com/chrome/).
 
 ## Quick Start
 
@@ -121,40 +102,37 @@ require "rubycrawl"
 result = RubyCrawl.crawl("https://example.com")
 
 # Access extracted content
-result.final_url       # Final URL after redirects
-result.clean_text      # Noise-stripped plain text (no nav/footer/ads)
-result.clean_html      # Noise-stripped HTML (no nav/footer/ads)
-result.raw_text        # Full body.innerText (unfiltered)
-result.html            # Full raw HTML content
-result.links           # Extracted links with metadata
-result.metadata        # Title, description, OG tags, etc.
+result.final_url      # Final URL after redirects
+result.clean_text     # Noise-stripped plain text (no nav/footer/ads)
+result.clean_html     # Noise-stripped HTML (same noise removed as clean_text)
+result.raw_text       # Full body.innerText (unfiltered)
+result.html           # Full raw HTML content
+result.links          # Extracted links with url, text, title, rel
+result.metadata       # Title, description, OG tags, etc.
+result.clean_markdown # Markdown converted from clean_html (lazy — first access only)
 ```
 
 ## Use Cases
 
 RubyCrawl is perfect for:
 
-- **📊 Data aggregation**: Crawl product catalogs, job listings, or news articles
-- **🤖 RAG applications**: Build knowledge bases for LLM/AI applications by crawling documentation sites
-- **🔍 SEO analysis**: Extract metadata, links, and content structure
-- **📱 Content migration**: Convert existing sites to Markdown for static site generators
-- **🧪 Testing**: Verify deployed site structure and content
-- **📚 Documentation scraping**: Create local copies of documentation with preserved links
+- **RAG applications**: Build knowledge bases for LLM/AI applications by crawling documentation sites
+- **Data aggregation**: Crawl product catalogs, job listings, or news articles
+- **SEO analysis**: Extract metadata, links, and content structure
+- **Content migration**: Convert existing sites to Markdown for static site generators
+- **Documentation scraping**: Create local copies of documentation with preserved links
 
 ## Usage
 
 ### Basic Crawling
 
-The simplest way to crawl a URL:
-
 ```ruby
 result = RubyCrawl.crawl("https://example.com")
 
-# Access the results
-result.html            # => "<html>...</html>"
-result.clean_text         # => "Example Domain\n\nThis domain is..." (smart-extracted, no nav/ads)
-result.raw_text        # => "Example Domain\nThis domain is..." (full body.innerText)
-result.metadata        # => { "status" => 200, "final_url" => "https://example.com" }
+result.html           # => "<html>...</html>"
+result.clean_text     # => "Example Domain\n\nThis domain is..." (no nav/ads)
+result.raw_text       # => "Example Domain\nThis domain is..." (full body text)
+result.metadata       # => { "final_url" => "https://example.com", "title" => "..." }
 ```
 
 ### Multi-Page Crawling
@@ -169,10 +147,10 @@ RubyCrawl.crawl_site("https://example.com", max_pages: 100, max_depth: 3) do |pa
 
   # Save to database
   Page.create!(
-    url: page.url,
-    html: page.html,
+    url:      page.url,
+    html:     page.html,
     markdown: page.clean_markdown,
-    depth: page.depth
+    depth:    page.depth
   )
 end
 ```
@@ -180,7 +158,6 @@ end
 **Real-world example: Building a RAG knowledge base**
 
 ```ruby
-# Crawl documentation site for AI/RAG application
 require "rubycrawl"
 
 RubyCrawl.configure(
@@ -194,21 +171,18 @@ pages_crawled = RubyCrawl.crawl_site(
   max_depth: 5,
   same_host_only: true
 ) do |page|
-  # Store in vector database for RAG
   VectorDB.upsert(
-    id: Digest::SHA256.hexdigest(page.url),
-    content: page.clean_markdown,  # Clean markdown for better embeddings
+    id:       Digest::SHA256.hexdigest(page.url),
+    content:  page.clean_markdown,
     metadata: {
-      url: page.url,
+      url:   page.url,
       title: page.metadata["title"],
       depth: page.depth
     }
   )
-
-  puts "✓ Indexed: #{page.metadata['title']} (#{page.depth} levels deep)"
 end
 
-puts "Crawled #{pages_crawled} pages into knowledge base"
+puts "Indexed #{pages_crawled} pages"
 ```
 
 #### Multi-Page Options
@@ -229,11 +203,11 @@ The block receives a `PageResult` with:
 page.url            # String: Final URL after redirects
 page.html           # String: Full raw HTML content
 page.clean_html     # String: Noise-stripped HTML (no nav/header/footer/ads)
-page.clean_text     # String: Noise-stripped plain text (no nav/header/footer/ads)
+page.clean_text     # String: Noise-stripped plain text (derived from clean_html)
 page.raw_text       # String: Full body.innerText (unfiltered)
 page.clean_markdown # String: Lazy-converted Markdown from clean_html
 page.links          # Array: URLs extracted from page
-page.metadata       # Hash: HTTP status, final URL, etc.
+page.metadata       # Hash: final_url, title, OG tags, etc.
 page.depth          # Integer: Link depth from start URL
 ```
 
@@ -241,12 +215,12 @@ page.depth          # Integer: Link depth from start URL
 
 #### Global Configuration
 
-Set default options that apply to all crawls:
-
 ```ruby
 RubyCrawl.configure(
-  wait_until: "networkidle",  # Wait until network is idle
-  block_resources: true        # Block images, fonts, CSS for speed
+  wait_until:      "networkidle",
+  block_resources: true,
+  timeout:         60,
+  headless:        true
 )
 
 # All subsequent crawls use these defaults
@@ -255,8 +229,6 @@ result = RubyCrawl.crawl("https://example.com")
 
 #### Per-Request Options
 
-Override defaults for specific requests:
-
 ```ruby
 # Use global defaults
 result = RubyCrawl.crawl("https://example.com")
@@ -264,195 +236,130 @@ result = RubyCrawl.crawl("https://example.com")
 # Override for this request only
 result = RubyCrawl.crawl(
   "https://example.com",
-  wait_until: "domcontentloaded",
+  wait_until:      "domcontentloaded",
   block_resources: false
 )
 ```
 
 #### Configuration Options
 
-| Option            | Values                                                                 | Default  | Description                                       |
-| ----------------- | ---------------------------------------------------------------------- | -------- | ------------------------------------------------- |
-| `wait_until`      | `"load"`, `"domcontentloaded"`, `"networkidle"`, `"commit"`           | `"load"` | When to consider page loaded                      |
-| `block_resources` | `true`, `false`                                                        | `true`   | Block images, fonts, CSS, media for faster crawls |
-| `max_attempts`    | Integer                                                                | `3`      | Total number of attempts (including the first)    |
+| Option            | Values                                                      | Default | Description                                         |
+| ----------------- | ----------------------------------------------------------- | ------- | --------------------------------------------------- |
+| `wait_until`      | `"load"`, `"domcontentloaded"`, `"networkidle"`, `"commit"` | `nil`   | When to consider page loaded (nil = Ferrum default) |
+| `block_resources` | `true`, `false`                                             | `nil`   | Block images, fonts, CSS, media for faster crawls   |
+| `max_attempts`    | Integer                                                     | `3`     | Total number of attempts (including the first)      |
+| `timeout`         | Integer (seconds)                                           | `30`    | Browser navigation timeout                          |
+| `headless`        | `true`, `false`                                             | `true`  | Run Chrome headlessly                               |
 
 **Wait strategies explained:**
 
-- `load` — Wait for the load event (fastest, good for static sites)
-- `domcontentloaded` — Wait for DOM ready (medium speed)
-- `networkidle` — Wait until no network requests for 500ms (slowest, best for SPAs)
-- `commit` — Wait until the first response bytes are received (fastest possible)
-
-### Advanced Usage
-
-#### Session-Based Crawling
-
-Sessions allow reusing browser contexts for better performance when crawling multiple pages. They're automatically used by `crawl_site`, but you can manage them manually for advanced use cases:
-
-```ruby
-# Create a session (reusable browser context)
-session_id = RubyCrawl.create_session
-
-begin
-  # All crawls with this session_id share the same browser context
-  result1 = RubyCrawl.crawl("https://example.com/page1", session_id: session_id)
-  result2 = RubyCrawl.crawl("https://example.com/page2", session_id: session_id)
-  # Browser state (cookies, localStorage) persists between crawls
-ensure
-  # Always destroy session when done
-  RubyCrawl.destroy_session(session_id)
-end
-```
-
-**When to use sessions:**
-
-- Multiple sequential crawls to the same domain (better performance)
-- Preserving cookies/state set by the site between page visits
-- Avoiding browser context creation overhead
-
-**Important:** Sessions are for **performance optimization only**. RubyCrawl is designed for crawling **public websites**. It does not provide authentication or login functionality for protected content.
-
-**Note:** `crawl_site` automatically creates and manages a session internally, so you don't need manual session management for multi-page crawling.
-
-**Session lifecycle:**
-
-- Sessions automatically expire after 30 minutes of inactivity
-- Sessions are cleaned up every 5 minutes
-- Always call `destroy_session` when done to free resources immediately
+- `load` — Wait for the load event (good for static sites)
+- `domcontentloaded` — Wait for DOM ready (faster)
+- `networkidle` — Wait until no network requests for 500ms (best for SPAs)
+- `commit` — Wait until the first response bytes are received (fastest)
 
 ### Result Object
-
-The crawl result is a `RubyCrawl::Result` object with these attributes:
 
 ```ruby
 result = RubyCrawl.crawl("https://example.com")
 
-result.html           # String: Full raw HTML content from page
-result.clean_html     # String: Noise-stripped HTML — nav/header/footer/ads removed.
-                      #         Source for clean_markdown conversion.
-result.clean_text     # String: Noise-stripped plain text — same noise removed as clean_html.
-                      #         Ideal for RAG embeddings and LLM input.
-result.raw_text       # String: Full body.innerText (unfiltered, includes nav/footer)
-result.clean_markdown # String: Markdown converted from clean_html (lazy-loaded on first access)
-result.links          # Array: Extracted links with url and text
-result.metadata       # Hash: Comprehensive metadata (see below)
+result.html           # String: Full raw HTML
+result.clean_html     # String: Noise-stripped HTML (nav/header/footer/ads removed)
+result.clean_text     # String: Plain text derived from clean_html — ideal for RAG
+result.raw_text       # String: Full body.innerText (unfiltered)
+result.clean_markdown # String: Markdown from clean_html (lazy — computed on first access)
+result.links          # Array: Extracted links with url/text/title/rel
+result.metadata       # Hash: See below
+result.final_url      # String: Shortcut for metadata['final_url']
 ```
 
 #### Links Format
 
-Links are extracted with full metadata:
-
 ```ruby
 result.links
 # => [
-#   {
-#     "url" => "https://example.com/about",
-#     "text" => "About Us",
-#     "title" => "Learn more about us",  # <a title="...">
-#     "rel" => nil                        # <a rel="nofollow">
-#   },
-#   {
-#     "url" => "https://example.com/contact",
-#     "text" => "Contact",
-#     "title" => null,
-#     "rel" => "nofollow"
-#   },
-#   ...
+#   { "url" => "https://example.com/about", "text" => "About", "title" => nil, "rel" => nil },
+#   { "url" => "https://example.com/contact", "text" => "Contact", "title" => nil, "rel" => "nofollow" },
 # ]
 ```
 
-**Note:** URLs are automatically converted to absolute URLs by the browser, so relative links like `/about` become `https://example.com/about`.
+URLs are automatically resolved to absolute form by the browser.
 
 #### Markdown Conversion
 
-Markdown is **lazy-loaded** — conversion only happens when you access `.clean_markdown`. It converts `clean_html` (noise-stripped HTML with nav/header/footer already removed), so the output contains only meaningful content:
+Markdown is **lazy** — conversion only happens on first access of `.clean_markdown`:
 
 ```ruby
-result = RubyCrawl.crawl(url)
-result.clean_html     # ✅ Noise-stripped HTML, no overhead
-result.clean_markdown # ⬅️ Converts clean_html to Markdown here (first call only)
-result.clean_markdown # ✅ Cached, instant
+result.clean_html     # ✅ Already available, no overhead
+result.clean_markdown # Converts clean_html → Markdown here (first call only)
+result.clean_markdown # ✅ Cached, instant on subsequent calls
 ```
 
 Uses [reverse_markdown](https://github.com/xijo/reverse_markdown) with GitHub-flavored output.
 
 #### Metadata Fields
 
-The `metadata` hash includes HTTP and HTML metadata:
-
 ```ruby
 result.metadata
 # => {
-#   "status" => 200,                 # HTTP status code
-#   "final_url" => "https://...",    # Final URL after redirects
-#   "title" => "Page Title",         # <title> tag
-#   "description" => "...",          # Meta description
-#   "keywords" => "ruby, web",       # Meta keywords
-#   "author" => "Author Name",       # Meta author
-#   "og_title" => "...",             # Open Graph title
-#   "og_description" => "...",       # Open Graph description
-#   "og_image" => "https://...",     # Open Graph image
-#   "og_url" => "https://...",       # Open Graph URL
-#   "og_type" => "website",          # Open Graph type
-#   "twitter_card" => "summary",     # Twitter card type
-#   "twitter_title" => "...",        # Twitter title
-#   "twitter_description" => "...",  # Twitter description
-#   "twitter_image" => "https://...",# Twitter image
-#   "canonical" => "https://...",    # Canonical URL
-#   "lang" => "en",                  # Page language
-#   "charset" => "UTF-8"             # Character encoding
+#   "final_url"           => "https://example.com",
+#   "title"               => "Page Title",
+#   "description"         => "...",
+#   "keywords"            => "ruby, web",
+#   "author"              => "Author Name",
+#   "og_title"            => "...",
+#   "og_description"      => "...",
+#   "og_image"            => "https://...",
+#   "og_url"              => "https://...",
+#   "og_type"             => "website",
+#   "twitter_card"        => "summary",
+#   "twitter_title"       => "...",
+#   "twitter_description" => "...",
+#   "twitter_image"       => "https://...",
+#   "canonical"           => "https://...",
+#   "lang"                => "en",
+#   "charset"             => "UTF-8"
 # }
 ```
 
-Note: All HTML metadata fields may be `null` if not present on the page.
-
 ### Error Handling
-
-RubyCrawl provides specific exception classes for different error scenarios:
 
 ```ruby
 begin
   result = RubyCrawl.crawl(url)
 rescue RubyCrawl::ConfigurationError => e
-  # Invalid URL or configuration
-  puts "Configuration error: #{e.message}"
+  # Invalid URL or option value
 rescue RubyCrawl::TimeoutError => e
-  # Page load timeout or network timeout
-  puts "Timeout: #{e.message}"
+  # Page load timed out
 rescue RubyCrawl::NavigationError => e
-  # Page navigation failed (404, DNS error, SSL error, etc.)
-  puts "Navigation failed: #{e.message}"
+  # Navigation failed (404, DNS error, SSL error)
 rescue RubyCrawl::ServiceError => e
-  # Node service unavailable or crashed
-  puts "Service error: #{e.message}"
+  # Browser failed to start or crashed
 rescue RubyCrawl::Error => e
   # Catch-all for any RubyCrawl error
-  puts "Crawl error: #{e.message}"
 end
 ```
 
 **Exception Hierarchy:**
 
-- `RubyCrawl::Error` (base class)
-  - `RubyCrawl::ConfigurationError` - Invalid URL or configuration
-  - `RubyCrawl::TimeoutError` - Timeout during crawl
-  - `RubyCrawl::NavigationError` - Page navigation failed
-  - `RubyCrawl::ServiceError` - Node service issues
+```
+RubyCrawl::Error
+  ├── ConfigurationError  — invalid URL or option value
+  ├── TimeoutError        — page load timed out
+  ├── NavigationError     — navigation failed (HTTP error, DNS, SSL)
+  └── ServiceError        — browser failed to start or crashed
+```
 
-**Automatic Retry:** RubyCrawl automatically retries transient failures (service errors, timeouts) with exponential backoff. The default `max_attempts: 3` means 3 total attempts (2 retries). Configure with:
+**Automatic Retry:** `ServiceError` and `TimeoutError` are retried with exponential backoff. `NavigationError` and `ConfigurationError` are not retried (they won't succeed on retry).
 
 ```ruby
-RubyCrawl.configure(max_attempts: 5)
-# or per-request
-RubyCrawl.crawl(url, max_attempts: 1)  # No retries
+RubyCrawl.configure(max_attempts: 5)     # 5 total attempts
+RubyCrawl.crawl(url, max_attempts: 1)    # Disable retries
 ```
 
 ## Rails Integration
 
 ### Installation
-
-Run the installer in your Rails app:
 
 ```bash
 bundle exec rake rubycrawl:install
@@ -461,173 +368,54 @@ bundle exec rake rubycrawl:install
 This creates `config/initializers/rubycrawl.rb`:
 
 ```ruby
-# frozen_string_literal: true
-
-# rubycrawl default configuration
 RubyCrawl.configure(
-  wait_until: "load",
+  wait_until:      "load",
   block_resources: true
 )
 ```
 
 ### Usage in Rails
 
-#### Basic Usage in Controllers
-
-```ruby
-class PagesController < ApplicationController
-  def show
-    result = RubyCrawl.crawl(params[:url])
-
-    @page = Page.create!(
-      url: result.final_url,
-      title: result.metadata['title'],
-      html: result.html,
-      clean_text: result.clean_text,
-      markdown: result.clean_markdown
-    )
-
-    redirect_to @page
-  end
-end
-```
-
 #### Background Jobs with ActiveJob
-
-**Simple Crawl Job:**
 
 ```ruby
 class CrawlPageJob < ApplicationJob
   queue_as :crawlers
 
-  # Automatic retry with exponential backoff for transient failures
   retry_on RubyCrawl::ServiceError, wait: :exponentially_longer, attempts: 5
   retry_on RubyCrawl::TimeoutError, wait: :exponentially_longer, attempts: 3
-
-  # Don't retry on configuration errors (bad URLs)
   discard_on RubyCrawl::ConfigurationError
 
-  def perform(url, user_id: nil)
+  def perform(url)
     result = RubyCrawl.crawl(url)
 
     Page.create!(
-      url: result.final_url,
-      title: result.metadata['title'],
-      text: result.text,
-      html: result.html,
-      user_id: user_id,
+      url:        result.final_url,
+      title:      result.metadata['title'],
+      content:    result.clean_text,
+      markdown:   result.clean_markdown,
       crawled_at: Time.current
     )
-  rescue RubyCrawl::NavigationError => e
-    # Page not found or failed to load
-    Rails.logger.warn "Failed to crawl #{url}: #{e.message}"
-    FailedCrawl.create!(url: url, error: e.message, user_id: user_id)
-  end
-end
-
-# Enqueue from anywhere
-CrawlPageJob.perform_later("https://example.com", user_id: current_user.id)
-```
-
-**Multi-Page Site Crawler Job:**
-
-```ruby
-class CrawlSiteJob < ApplicationJob
-  queue_as :crawlers
-
-  def perform(start_url, max_pages: 50)
-    pages_crawled = RubyCrawl.crawl_site(
-      start_url,
-      max_pages: max_pages,
-      max_depth: 3,
-      same_host_only: true
-    ) do |page|
-      Page.create!(
-        url: page.url,
-        title: page.metadata['title'],
-        text: page.clean_markdown, # Store markdown for RAG applications
-        depth: page.depth,
-        crawled_at: Time.current
-      )
-    end
-
-    Rails.logger.info "Crawled #{pages_crawled} pages from #{start_url}"
   end
 end
 ```
 
-**Batch Crawling Pattern:**
-
-```ruby
-class BatchCrawlJob < ApplicationJob
-  queue_as :crawlers
-
-  def perform(urls)
-    # Create session for better performance
-    session_id = RubyCrawl.create_session
-
-    begin
-      urls.each do |url|
-        result = RubyCrawl.crawl(url, session_id: session_id)
-
-        Page.create!(
-          url: result.final_url,
-          html: result.html,
-          text: result.text
-        )
-      end
-    ensure
-      # Always destroy session when done
-      RubyCrawl.destroy_session(session_id)
-    end
-  end
-end
-
-# Enqueue batch
-BatchCrawlJob.perform_later(["https://example.com", "https://example.com/about"])
-```
-
-**Periodic Crawling with Sidekiq-Cron:**
-
-```ruby
-# config/schedule.yml (for sidekiq-cron)
-crawl_news_sites:
-  cron: "0 */6 * * *"  # Every 6 hours
-  class: "CrawlNewsSitesJob"
-
-# app/jobs/crawl_news_sites_job.rb
-class CrawlNewsSitesJob < ApplicationJob
-  queue_as :scheduled_crawlers
-
-  def perform
-    Site.where(active: true).find_each do |site|
-      CrawlSiteJob.perform_later(site.url, max_pages: site.max_pages)
-    end
-  end
-end
-```
-
-**RAG/AI Knowledge Base Pattern:**
+**Multi-page RAG knowledge base:**
 
 ```ruby
 class BuildKnowledgeBaseJob < ApplicationJob
   queue_as :crawlers
 
   def perform(documentation_url)
-    RubyCrawl.crawl_site(
-      documentation_url,
-      max_pages: 500,
-      max_depth: 5
-    ) do |page|
-      # Store in vector database for RAG
+    RubyCrawl.crawl_site(documentation_url, max_pages: 500, max_depth: 5) do |page|
       embedding = OpenAI.embed(page.clean_markdown)
 
       Document.create!(
-        url: page.url,
-        title: page.metadata['title'],
-        content: page.clean_markdown,
+        url:       page.url,
+        title:     page.metadata['title'],
+        content:   page.clean_markdown,
         embedding: embedding,
-        depth: page.depth
+        depth:     page.depth
       )
     end
   end
@@ -636,26 +424,19 @@ end
 
 #### Best Practices
 
-1. **Use background jobs** for crawling to avoid blocking web requests
-2. **Configure retry logic** based on error types (retry ServiceError, discard ConfigurationError)
-3. **Use sessions** for batch crawling to improve performance
-4. **Monitor job failures** and set up alerts for repeated errors
-5. **Rate limit** external crawling to be respectful (use job throttling)
-6. **Store both HTML and text** for flexibility in data processing
+1. **Use background jobs** to avoid blocking web requests
+2. **Configure retry logic** based on error type
+3. **Store `clean_markdown`** for RAG applications (preserves heading structure for chunking)
+4. **Rate limit** external crawling to be respectful
 
 ## Production Deployment
 
 ### Pre-deployment Checklist
 
-1. **Install Node.js** on your production servers (LTS version recommended)
+1. **Ensure Chrome is installed** on your production servers
 2. **Run installer** during deployment:
    ```bash
    bundle exec rake rubycrawl:install
-   ```
-3. **Set environment variables** (optional):
-   ```bash
-   export RUBYCRAWL_NODE_BIN=/usr/bin/node  # Custom Node.js path
-   export RUBYCRAWL_NODE_LOG=/var/log/rubycrawl.log  # Service logs
    ```
 
 ### Docker Example
@@ -663,129 +444,81 @@ end
 ```dockerfile
 FROM ruby:3.2
 
-# Install Node.js LTS
-RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - \
-    && apt-get install -y nodejs
-
-# Install system dependencies for Playwright
-RUN npx playwright install-deps
+# Install Chrome
+RUN apt-get update && apt-get install -y \
+    chromium \
+    --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY Gemfile* ./
 RUN bundle install
 
-# Install Playwright browsers
-RUN bundle exec rake rubycrawl:install
-
 COPY . .
 CMD ["rails", "server"]
 ```
 
-### Heroku Deployment
+Ferrum will detect `chromium` automatically. To specify a custom path:
 
-Add the Node.js buildpack:
-
-```bash
-heroku buildpacks:add heroku/nodejs
-heroku buildpacks:add heroku/ruby
+```ruby
+RubyCrawl.configure(
+  browser_options: { "browser-path": "/usr/bin/chromium" }
+)
 ```
 
-Add to `package.json` in your Rails root:
+## Architecture
 
-```json
-{
-  "engines": {
-    "node": "18.x"
-  }
-}
+RubyCrawl uses a single-process architecture:
+
+```
+RubyCrawl (public API)
+  ↓
+Browser (lib/rubycrawl/browser.rb)  ← Ferrum wrapper
+  ↓
+Ferrum::Browser                     ← Chrome DevTools Protocol (pure Ruby)
+  ↓
+Chromium                            ← headless browser
 ```
 
-## How It Works
+- Chrome launches once lazily and is reused across all crawls
+- Each crawl gets an isolated page context (own cookies/storage)
+- JS extraction runs inside the browser via `page.evaluate()`
+- No separate processes, no HTTP boundary, no Node.js
 
-RubyCrawl uses a simple architecture:
+## Performance
 
-- **Ruby Gem** provides the public API and handles orchestration
-- **Node.js Service** (bundled, auto-started) manages Playwright browsers
-- Communication via HTTP/JSON on localhost
-
-This design keeps things stable and easy to debug. The browser runs in a separate process, so crashes won't affect your Ruby application.
-
-## Performance Tips
-
-- **Resource blocking**: Keep `block_resources: true` (default) for 2-3x faster crawls when you don't need images/CSS
+- **Resource blocking**: Keep `block_resources: true` (default: nil) to skip images/fonts/CSS for 2-3x faster crawls
 - **Wait strategy**: Use `wait_until: "load"` for static sites, `"networkidle"` for SPAs
-- **Concurrency**: Use background jobs (Sidekiq, etc.) for parallel crawling
-- **Browser reuse**: The first crawl is slower (~2s) due to browser launch; subsequent crawls are much faster (~500ms)
+- **Concurrency**: Use background jobs (Sidekiq, GoodJob, etc.) for parallel crawling
+- **Browser reuse**: The first crawl is slower (~2s) due to Chrome launch; subsequent crawls are much faster (~200-500ms)
 
 ## Development
 
-Want to contribute? Check out the [contributor guidelines](.github/copilot-instructions.md).
-
 ```bash
-# Setup
 git clone git@github.com:craft-wise/rubycrawl.git
 cd rubycrawl
 bin/setup
 
-# Run tests
+# Run unit tests (no browser required)
 bundle exec rspec
+
+# Run integration tests (requires Chrome)
+INTEGRATION=1 bundle exec rspec
 
 # Manual testing
 bin/console
 > RubyCrawl.crawl("https://example.com")
+> RubyCrawl.crawl("https://example.com").clean_text
+> RubyCrawl.crawl("https://example.com").clean_markdown
 ```
 
 ## Contributing
 
 Contributions are welcome! Please read our [contribution guidelines](.github/copilot-instructions.md) first.
 
-### Development Philosophy
-
 - **Simplicity over cleverness**: Prefer clear, explicit code
 - **Stability over speed**: Correctness first, optimization second
-- **Ruby-first**: Hide Node.js/Playwright complexity from users
-- **No vendor lock-in**: Pure open source, no SaaS dependencies
-
-## Why Choose RubyCrawl?
-
-RubyCrawl stands out in the Ruby ecosystem with its unique combination of features:
-
-### 🎯 **Built for Ruby Developers**
-
-- **Idiomatic Ruby API** — Feels natural to Rubyists, no need to learn Playwright
-- **Rails-first design** — Generators, initializers, and ActiveJob integration out of the box
-- **Modular architecture** — Clean, testable code following Ruby best practices
-
-### 🚀 **Production-Grade Reliability**
-
-- **Automatic retry** with exponential backoff for transient failures
-- **Smart error handling** with custom exception hierarchy
-- **Process isolation** — Browser crashes don't affect your Ruby application
-- **Battle-tested** — Built on Playwright's proven browser automation
-
-### 💎 **Developer Experience**
-
-- **Zero configuration** — Works immediately after installation
-- **Lazy loading** — Markdown conversion only when you need it
-- **Smart URL handling** — Automatic normalization and deduplication
-- **Comprehensive docs** — Clear examples for common use cases
-
-### 🌐 **Rich Feature Set**
-
-- ✅ JavaScript-enabled crawling (SPAs, AJAX, dynamic content)
-- ✅ Multi-page crawling with BFS algorithm
-- ✅ Link extraction with metadata (url, text, title, rel)
-- ✅ Markdown conversion (GitHub-flavored)
-- ✅ Metadata extraction (OG tags, Twitter cards, etc.)
-- ✅ Resource blocking for 2-3x performance boost
-
-### 📊 **Perfect for Modern Use Cases**
-
-- **RAG applications** — Build AI knowledge bases from documentation
-- **Data aggregation** — Extract structured data from multiple pages
-- **Content migration** — Convert sites to Markdown for static generators
-- **SEO analysis** — Extract metadata and link structures
-- **Testing** — Verify deployed site content and structure
+- **Hide complexity**: Users should never need to know Ferrum exists
 
 ## License
 
@@ -793,7 +526,7 @@ The gem is available as open source under the terms of the [MIT License](LICENSE
 
 ## Credits
 
-Built with [Playwright](https://playwright.dev/) by Microsoft — the industry-standard browser automation framework.
+Built with [Ferrum](https://github.com/rubycdp/ferrum) — pure Ruby Chrome DevTools Protocol client.
 
 Powered by [reverse_markdown](https://github.com/xijo/reverse_markdown) for GitHub-flavored Markdown conversion.
 
@@ -802,12 +535,3 @@ Powered by [reverse_markdown](https://github.com/xijo/reverse_markdown) for GitH
 - **Issues**: [GitHub Issues](https://github.com/craft-wise/rubycrawl/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/craft-wise/rubycrawl/discussions)
 - **Email**: ganesh.navale@zohomail.in
-
-## Acknowledgments
-
-Special thanks to:
-
-- [Microsoft Playwright](https://playwright.dev/) team for the robust, production-grade browser automation framework
-- The Ruby community for building an ecosystem that values developer happiness and code clarity
-- The Node.js community for excellent tooling and libraries that make cross-language integration seamless
-- Open source contributors worldwide who make projects like this possible

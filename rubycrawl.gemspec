@@ -8,22 +8,21 @@ Gem::Specification.new do |spec|
   spec.authors = ['RubyCrawl contributors']
   spec.email = ['ganesh.navale@zohomail.in']
 
-  spec.summary = 'Playwright-based web crawler for Ruby'
-  spec.description = 'A Ruby-first web crawler that orchestrates a local Playwright service.'
+  spec.summary = 'Pure Ruby web crawler with full JavaScript rendering'
+  spec.description = 'rubycrawl uses Ferrum (Chrome DevTools Protocol) for JS rendering.'
   spec.homepage = 'https://github.com/craft-wise/rubycrawl'
   spec.license = 'MIT'
 
   spec.required_ruby_version = '>= 3.0'
 
   spec.files  = Dir.glob('{lib}/**/*', File::FNM_DOTMATCH).reject { |f| File.directory?(f) }
-  spec.files += Dir.glob('node/**/*', File::FNM_DOTMATCH).reject { |f| File.directory?(f) || f.include?('node_modules') }
   spec.files += %w[README.md LICENSE Rakefile rubycrawl.gemspec .rspec]
 
   spec.bindir = 'bin'
   spec.executables = []
   spec.require_paths = ['lib']
 
-  # For HTML to Markdown conversion
+  spec.add_dependency 'ferrum',           '~> 0.15'
   spec.add_dependency 'reverse_markdown', '~> 2.1'
 
   spec.metadata['rubygems_mfa_required'] = 'true'
