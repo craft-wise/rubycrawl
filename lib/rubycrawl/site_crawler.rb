@@ -7,22 +7,27 @@ class RubyCrawl
   class SiteCrawler
     # Page result yielded to the block with lazy clean_markdown.
     class PageResult
-      attr_reader :url, :html, :raw_text, :clean_text, :clean_html, :links, :metadata, :depth
+      attr_reader :url, :html, :raw_text, :clean_html, :links, :metadata, :depth
 
-      def initialize(url:, html:, raw_text:, clean_text:, clean_html:, links:, metadata:, depth:)
+      def initialize(url:, html:, raw_text:, clean_html:, links:, metadata:, depth:)
         @url        = url
         @html       = html
         @raw_text   = raw_text
-        @clean_text = clean_text
         @clean_html = clean_html
         @links      = links
         @metadata   = metadata
         @depth      = depth
       end
 
-      # Returns clean markdown from noise-stripped HTML.
-      # Uses clean_html (nav/header/footer removed) when available, falls back to full html.
-      # Relative URLs are resolved using the page's final_url.
+      # Plain text derived from noise-stripped HTML. Lazy — same as Result#clean_text.
+      def clean_text
+        @clean_text ||= Result.new(
+          html: html, raw_text: raw_text, clean_html: clean_html,
+          links: links, metadata: metadata
+        ).clean_text
+      end
+
+      # Markdown derived from noise-stripped HTML. Lazy — same as Result#clean_markdown.
       def clean_markdown
         source = clean_html.empty? ? html : clean_html
         @clean_markdown ||= MarkdownConverter.convert(source, base_url: final_url)
@@ -44,7 +49,6 @@ class RubyCrawl
       @max_attempts = options.fetch(:max_attempts, nil)
       @visited = Set.new
       @queue = []
-      @session_id = nil
     end
 
     def crawl(start_url, &block)
@@ -54,11 +58,8 @@ class RubyCrawl
       raise ConfigurationError, "Invalid start URL: #{start_url}" unless normalized
 
       @base_url = normalized
-      @session_id = @client.create_session
       enqueue(normalized, 0)
       process_queue(&block)
-    ensure
-      @client.destroy_session(@session_id) if @session_id
     end
 
     private
@@ -98,7 +99,7 @@ class RubyCrawl
     end
 
     def crawl_page(url, depth)
-      opts = { wait_until: @wait_until, block_resources: @block_resources, session_id: @session_id }
+      opts = { wait_until: @wait_until, block_resources: @block_resources }
       opts[:max_attempts] = @max_attempts if @max_attempts
       result = @client.crawl(url, **opts)
       build_page_result(url, depth, result)
@@ -112,7 +113,6 @@ class RubyCrawl
         url:        url,
         html:       result.html,
         raw_text:   result.raw_text,
-        clean_text: result.clean_text,
         clean_html: result.clean_html,
         links:      extract_urls(result.links),
         metadata:   result.metadata,

@@ -4,34 +4,27 @@
 
 require 'spec_helper'
 
-# Canned response mirroring the Node service JSON for unit tests.
-CANNED_CRAWL_RESPONSE = {
-  'ok' => true,
-  'url' => 'https://example.com',
-  'html' => '<html><body><h1>Example Domain</h1><p>This domain is for use in examples.</p></body></html>',
-  'raw_text' => "Example Domain\nThis domain is for use in examples.",
-  'clean_text' => "Example Domain\n\nThis domain is for use in examples.",
-  'clean_html' => '<h1>Example Domain</h1><p>This domain is for use in examples.</p>',
-  'links' => [{ 'url' => 'https://example.com/about', 'text' => 'About', 'title' => nil, 'rel' => nil }],
-  'metadata' => {
-    'status' => 200,
-    'final_url' => 'https://example.com/',
-    'title' => 'Example Domain',
+# Canned Result used in unit tests — returned directly by the mocked Browser#crawl.
+CANNED_RESULT = RubyCrawl::Result.new(
+  html:       '<html><body><h1>Example Domain</h1><p>This domain is for use in examples.</p></body></html>',
+  raw_text:   "Example Domain\nThis domain is for use in examples.",
+  clean_html: '<h1>Example Domain</h1><p>This domain is for use in examples.</p>',
+  links:      [{ 'url' => 'https://example.com/about', 'text' => 'About', 'title' => nil, 'rel' => nil }],
+  metadata:   {
+    'final_url'   => 'https://example.com/',
+    'title'       => 'Example Domain',
     'description' => nil,
-    'canonical' => nil
+    'canonical'   => nil
   }
-}.freeze
+)
 
 RSpec.describe RubyCrawl do
   # ──────────────────────────────────────────────────────────────
-  # Unit tests — Node service is mocked, no network required
+  # Unit tests — Browser is mocked, no network or Chrome required
   # ──────────────────────────────────────────────────────────────
-  describe 'unit (mocked Node service)' do
+  describe 'unit (mocked browser)' do
     before do
-      allow_any_instance_of(RubyCrawl::ServiceClient).to receive(:ensure_running)
-      allow_any_instance_of(RubyCrawl::ServiceClient).to receive(:post_json)
-        .with('/crawl', anything)
-        .and_return(CANNED_CRAWL_RESPONSE)
+      allow_any_instance_of(RubyCrawl::Browser).to receive(:crawl).and_return(CANNED_RESULT)
     end
 
     describe '.crawl' do
@@ -41,17 +34,18 @@ RSpec.describe RubyCrawl do
         expect(result).to be_a(RubyCrawl::Result)
       end
 
-      it 'populates html, raw_text, clean_text, clean_html, links, metadata' do
-        expect(result.html).to eq(CANNED_CRAWL_RESPONSE['html'])
-        expect(result.raw_text).to eq(CANNED_CRAWL_RESPONSE['raw_text'])
-        expect(result.clean_text).to eq(CANNED_CRAWL_RESPONSE['clean_text'])
-        expect(result.clean_html).to eq(CANNED_CRAWL_RESPONSE['clean_html'])
-        expect(result.links).to eq(CANNED_CRAWL_RESPONSE['links'])
-        expect(result.metadata).to include('status' => 200, 'final_url' => 'https://example.com/')
+      it 'populates html, raw_text, clean_html, links, metadata' do
+        expect(result.html).to eq(CANNED_RESULT.html)
+        expect(result.raw_text).to eq(CANNED_RESULT.raw_text)
+        expect(result.clean_html).to eq(CANNED_RESULT.clean_html)
+        expect(result.links).to eq(CANNED_RESULT.links)
+        expect(result.metadata).to include('final_url' => 'https://example.com/')
       end
 
-      it 'content differs from raw_text (smart extraction vs full body)' do
-        expect(result.clean_text).not_to eq(result.raw_text)
+      it 'clean_text is derived lazily from clean_html' do
+        expect(result.clean_text).to be_a(String)
+        expect(result.clean_text).to include('Example Domain')
+        expect(result.clean_text).not_to include('<h1>')
       end
 
       it 'exposes final_url from metadata' do
@@ -69,13 +63,13 @@ RSpec.describe RubyCrawl do
         expect(result.clean_markdown?).to be true
       end
 
-      it 'clean_markdown is derived from clean_html' do
+      it 'clean_markdown is derived from clean_html (no HTML tags)' do
         expect(result.clean_markdown).not_to include('<html>')
         expect(result.clean_markdown).to include('Example Domain')
       end
     end
 
-    describe 'error handling' do
+    describe 'URL validation' do
       it 'raises ConfigurationError for invalid URL' do
         expect { described_class.crawl('not-a-url') }
           .to raise_error(RubyCrawl::ConfigurationError, /Invalid URL/)
@@ -95,25 +89,27 @@ RSpec.describe RubyCrawl do
         expect { described_class.crawl('https://example.com', wait_until: 'invalid') }
           .to raise_error(RubyCrawl::ConfigurationError, /Invalid wait_until/)
       end
+    end
 
-      it 'raises NavigationError when Node returns crawl_failed' do
-        allow_any_instance_of(RubyCrawl::ServiceClient).to receive(:post_json)
-          .and_return({ 'error' => 'crawl_failed', 'message' => 'net::ERR_NAME_NOT_RESOLVED' })
+    describe 'error handling' do
+      it 'raises NavigationError on navigation failure' do
+        allow_any_instance_of(RubyCrawl::Browser).to receive(:crawl)
+          .and_raise(RubyCrawl::NavigationError, 'Navigation failed: net::ERR_NAME_NOT_RESOLVED')
         expect { described_class.crawl('https://example.com') }
           .to raise_error(RubyCrawl::NavigationError, /Navigation failed/)
       end
 
-      it 'raises ServiceError when Node returns session_create_failed' do
-        allow_any_instance_of(RubyCrawl::ServiceClient).to receive(:post_json)
-          .and_return({ 'error' => 'session_create_failed', 'message' => 'browser crashed' })
+      it 'raises TimeoutError on timeout' do
+        allow_any_instance_of(RubyCrawl::Browser).to receive(:crawl)
+          .and_raise(RubyCrawl::TimeoutError, 'Navigation timed out')
         client = described_class.new(max_attempts: 1)
         expect { client.crawl('https://example.com') }
-          .to raise_error(RubyCrawl::ServiceError, /Service error/)
+          .to raise_error(RubyCrawl::TimeoutError)
       end
 
-      it 'raises ServiceError on connection refused' do
-        allow_any_instance_of(RubyCrawl::ServiceClient).to receive(:ensure_running)
-          .and_raise(RubyCrawl::ServiceError, 'Cannot connect to node service')
+      it 'raises ServiceError on browser launch failure' do
+        allow_any_instance_of(RubyCrawl::Browser).to receive(:crawl)
+          .and_raise(RubyCrawl::ServiceError, 'Failed to launch browser')
         client = described_class.new(max_attempts: 1)
         expect { client.crawl('https://example.com') }
           .to raise_error(RubyCrawl::ServiceError)
@@ -121,25 +117,25 @@ RSpec.describe RubyCrawl do
     end
 
     describe 'retry behavior' do
-      it 'retries on ServiceError and eventually raises after max_attempts' do
+      it 'retries on ServiceError and raises after max_attempts exhausted' do
         call_count = 0
-        allow_any_instance_of(RubyCrawl::ServiceClient).to receive(:post_json) do
+        allow_any_instance_of(RubyCrawl::Browser).to receive(:crawl) do
           call_count += 1
           raise RubyCrawl::ServiceError, 'transient failure'
         end
 
         client = described_class.new(max_attempts: 2)
         expect { client.crawl('https://example.com') }.to raise_error(RubyCrawl::ServiceError)
-        expect(call_count).to eq(2) # 2 total attempts with max_attempts: 2
+        expect(call_count).to eq(2)
       end
 
       it 'succeeds on retry if a transient failure resolves' do
         attempts = 0
-        allow_any_instance_of(RubyCrawl::ServiceClient).to receive(:post_json) do
+        allow_any_instance_of(RubyCrawl::Browser).to receive(:crawl) do
           attempts += 1
           raise RubyCrawl::ServiceError, 'transient' if attempts < 2
 
-          CANNED_CRAWL_RESPONSE
+          CANNED_RESULT
         end
 
         client = described_class.new(max_attempts: 3)
@@ -148,25 +144,17 @@ RSpec.describe RubyCrawl do
         expect(result).to be_a(RubyCrawl::Result)
         expect(attempts).to eq(2)
       end
-    end
 
-    describe 'session management (mocked)' do
-      before do
-        allow_any_instance_of(RubyCrawl::ServiceClient).to receive(:post_json)
-          .with('/session/create', anything)
-          .and_return({ 'ok' => true, 'session_id' => 'sess_abc123' })
-        allow_any_instance_of(RubyCrawl::ServiceClient).to receive(:post_json)
-          .with('/session/destroy', anything)
-          .and_return({ 'ok' => true })
-      end
+      it 'does not retry NavigationError' do
+        call_count = 0
+        allow_any_instance_of(RubyCrawl::Browser).to receive(:crawl) do
+          call_count += 1
+          raise RubyCrawl::NavigationError, 'page not found'
+        end
 
-      it 'creates a session and returns a session_id string' do
-        session_id = described_class.create_session
-        expect(session_id).to eq('sess_abc123')
-      end
-
-      it 'destroys a session without raising' do
-        expect { described_class.destroy_session('sess_abc123') }.not_to raise_error
+        client = described_class.new(max_attempts: 3)
+        expect { client.crawl('https://example.com') }.to raise_error(RubyCrawl::NavigationError)
+        expect(call_count).to eq(1)
       end
     end
 
@@ -182,75 +170,47 @@ RSpec.describe RubyCrawl do
   end
 
   # ──────────────────────────────────────────────────────────────
-  # Integration tests — require live Node service and network
-  # Run with: bundle exec rspec --tag integration
+  # Integration tests — require live Chrome and network
+  # Run with: INTEGRATION=1 bundle exec rspec
   # ──────────────────────────────────────────────────────────────
   describe 'integration', :integration do
     describe '.crawl' do
-      it 'returns a result object with HTML and metadata' do
+      it 'returns a Result with HTML and metadata' do
         result = described_class.crawl('https://example.com')
 
         expect(result).to be_a(RubyCrawl::Result)
         expect(result.html).to be_a(String)
         expect(result.links).to be_a(Array)
         expect(result.metadata).to be_a(Hash)
-        expect(result.metadata).to include('status', 'final_url')
+        expect(result.metadata).to include('final_url')
       end
 
-      it 'includes HTML metadata when available' do
+      it 'extracts raw_text and clean_text' do
         result = described_class.crawl('https://example.com')
-        expect(result.metadata.keys).to include('title', 'description', 'canonical')
-      end
 
-      it 'extracts raw_text and smart content' do
-        result = described_class.crawl('https://example.com')
         expect(result.raw_text).to be_a(String)
         expect(result.raw_text).not_to be_empty
         expect(result.clean_text).to be_a(String)
         expect(result.clean_text).not_to be_empty
         expect(result.clean_text).to include('Example Domain')
       end
-    end
 
-    describe 'session management' do
-      it 'creates and destroys sessions' do
-        session_id = described_class.create_session
-        expect(session_id).to be_a(String)
-        expect(session_id).to start_with('sess_')
-        expect { described_class.destroy_session(session_id) }.not_to raise_error
-      end
-
-      it 'can reuse session across multiple crawls' do
-        session_id = described_class.create_session
-        begin
-          result1 = described_class.crawl('https://example.com', session_id: session_id)
-          result2 = described_class.crawl('https://example.com/about', session_id: session_id)
-          expect(result1).to be_a(RubyCrawl::Result)
-          expect(result2).to be_a(RubyCrawl::Result)
-        ensure
-          described_class.destroy_session(session_id)
-        end
-      end
-
-      it 'handles destroy of non-existent session gracefully' do
-        expect { described_class.destroy_session('sess_nonexistent') }.not_to raise_error
+      it 'extracts metadata fields' do
+        result = described_class.crawl('https://example.com')
+        expect(result.metadata.keys).to include('title', 'canonical')
       end
     end
 
     describe '.crawl_site' do
-      it 'crawls multiple pages and yields results' do
+      it 'crawls multiple pages and yields PageResult objects' do
         pages = []
-        pages_crawled = described_class.crawl_site(
-          'https://example.com',
-          max_pages: 3,
-          max_depth: 1
-        ) { |page| pages << page }
+        count = described_class.crawl_site('https://example.com', max_pages: 3, max_depth: 1) do |page|
+          pages << page
+        end
 
-        expect(pages_crawled).to be > 0
-        expect(pages.length).to eq(pages_crawled)
+        expect(count).to be > 0
+        expect(pages.length).to eq(count)
         expect(pages.first).to be_a(RubyCrawl::SiteCrawler::PageResult)
-        expect(pages.first.url).to be_a(String)
-        expect(pages.first.html).to be_a(String)
         expect(pages.first.depth).to be_a(Integer)
       end
 

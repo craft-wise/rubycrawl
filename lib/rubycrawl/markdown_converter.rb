@@ -55,9 +55,9 @@ class RubyCrawl
 
     def default_options
       {
-        unknown_tags: :bypass,
+        unknown_tags:    :bypass,
         github_flavored: true,
-        tag_border: ''
+        tag_border:      ''
       }
     end
   end
