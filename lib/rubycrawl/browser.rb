@@ -99,7 +99,7 @@ class RubyCrawl
         raw_text:   raw_text.to_s,
         clean_html: content['cleanHtml'].to_s,
         links:      Array(links),
-        metadata:   { 'final_url' => final_url }.merge(metadata || {})
+        metadata:   { 'final_url' => final_url, 'extractor' => content['extractor'] }.merge(metadata || {})
       )
     end
   end

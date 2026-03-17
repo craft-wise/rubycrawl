@@ -3,13 +3,10 @@
 class RubyCrawl
   class Browser
     # JavaScript extraction constants, evaluated inside Chromium via page.evaluate().
-    # Ported verbatim from node/src/index.js — logic is unchanged.
-    # NOISE_SELECTORS is interpolated directly into EXTRACT_CONTENT_JS (no need to
-    # pass as a JS argument as the Node version did).
+    # All constants are IIFEs — Ferrum's page.evaluate() evaluates an expression,
+    # it does NOT call function definitions. Wrapping as (() => { ... })() ensures
+    # the function is immediately invoked and its return value is captured.
     module Extraction
-      # All constants are IIFEs — Ferrum's page.evaluate() evaluates an expression,
-      # it does NOT call function definitions. Wrapping as (() => { ... })() ensures
-      # the function is immediately invoked and its return value is captured.
       EXTRACT_METADATA_JS = <<~JS
         (() => {
           const getMeta = (name) => {
@@ -54,8 +51,7 @@ class RubyCrawl
         (() => (document.body?.innerText || "").trim())()
       JS
 
-      # Semantic noise selectors — covers standard HTML5 elements and ARIA roles.
-      # Interpolated directly into EXTRACT_CONTENT_JS as a string literal.
+      # Semantic noise selectors — used by the heuristic fallback.
       NOISE_SELECTORS = [
         'nav', 'header', 'footer', 'aside',
         '[role="navigation"]', '[role="banner"]', '[role="contentinfo"]',
@@ -64,11 +60,37 @@ class RubyCrawl
         'script', 'style', 'noscript', 'iframe'
       ].join(', ').freeze
 
-      # Removes semantic noise (nav/header/footer/aside + ARIA roles) and high
-      # link-density containers, then returns both clean plain text and clean HTML.
-      # DOM mutations are reversed after extraction so the page is unchanged.
+      # Mozilla Readability.js v0.6.0 — vendored source, read once at load time.
+      # Embedded inside EXTRACT_CONTENT_JS's outer IIFE so Readability is defined
+      # and used within the same Runtime.evaluate expression (Ferrum evaluates a
+      # single expression — separate evaluate calls have separate scopes).
+      READABILITY_JS = File.read(File.join(__dir__, 'readability.js')).freeze
+
+      # Extracts clean article HTML using Mozilla Readability (primary) with a
+      # link-density heuristic as fallback when Readability returns no content.
+      # Everything is wrapped in one outer IIFE so page.evaluate gets a single
+      # expression and Readability is in scope for the extraction logic.
+      # DOM mutations from the fallback path are reversed after extraction.
       EXTRACT_CONTENT_JS = <<~JS.freeze
         (() => {
+          // Mozilla Readability.js v0.6.0 — defined in this IIFE's scope.
+          #{READABILITY_JS}
+
+          // Primary: Mozilla Readability — article-quality extraction.
+          let readabilityDebug = null;
+          try {
+            const docClone = document.cloneNode(true);
+            const reader = new Readability(docClone, { charThreshold: 100 });
+            const article = reader.parse();
+            if (article && article.textContent && article.textContent.trim().length > 200) {
+              return { cleanHtml: article.content, extractor: "readability" };
+            }
+            readabilityDebug = article ? `returned ${article.textContent?.trim().length ?? 0} text chars (below threshold)` : "returned null (no article detected)";
+          } catch (e) {
+            readabilityDebug = `error: ${e.message}`;
+          }
+
+          // Fallback: link-density heuristic (works on nav-heavy / non-article pages).
           const noiseSelectors = #{NOISE_SELECTORS.to_json};
           function linkDensity(el) {
             const total = (el.innerText || "").trim().length;
@@ -98,7 +120,7 @@ class RubyCrawl
           }
           const cleanHtml = document.body.innerHTML;
           removed.reverse().forEach(({ el, parent, next }) => parent.insertBefore(el, next));
-          return { cleanHtml };
+          return { cleanHtml, extractor: "heuristic", debug: readabilityDebug };
         })()
       JS
     end

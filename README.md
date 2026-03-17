@@ -16,6 +16,7 @@ RubyCrawl provides **accurate, JavaScript-enabled web scraping** using a pure Ru
 - ✅ **Production-ready** — Auto-retry, error handling, resource optimization
 - ✅ **Multi-page crawling** — BFS algorithm with smart URL deduplication
 - ✅ **Rails-friendly** — Generators, initializers, and ActiveJob integration
+- ✅ **Readability-powered** — Mozilla Readability.js for article-quality extraction, heuristic fallback for all other pages
 
 ```ruby
 # One line to crawl any JavaScript-heavy site
@@ -35,7 +36,7 @@ result.metadata       # Title, description, OG tags, etc.
 - **Simple API**: Clean Ruby interface — zero Ferrum or CDP knowledge required
 - **Resource optimization**: Built-in resource blocking for 2-3x faster crawls
 - **Auto-managed browsers**: Lazy Chrome singleton, isolated page per crawl
-- **Content extraction**: HTML, plain text, clean HTML, Markdown (lazy), links, metadata
+- **Content extraction**: Mozilla Readability.js (primary) + link-density heuristic (fallback) — article-quality `clean_html`, `clean_text`, `clean_markdown`, links, metadata
 - **Multi-page crawling**: BFS crawler with configurable depth limits and URL deduplication
 - **Smart URL handling**: Automatic normalization, tracking parameter removal, same-host filtering
 - **Rails integration**: First-class Rails support with generators and initializers
@@ -102,14 +103,15 @@ require "rubycrawl"
 result = RubyCrawl.crawl("https://example.com")
 
 # Access extracted content
-result.final_url      # Final URL after redirects
-result.clean_text     # Noise-stripped plain text (no nav/footer/ads)
-result.clean_html     # Noise-stripped HTML (same noise removed as clean_text)
-result.raw_text       # Full body.innerText (unfiltered)
-result.html           # Full raw HTML content
-result.links          # Extracted links with url, text, title, rel
-result.metadata       # Title, description, OG tags, etc.
-result.clean_markdown # Markdown converted from clean_html (lazy — first access only)
+result.final_url                   # Final URL after redirects
+result.clean_text                  # Noise-stripped plain text (no nav/footer/ads)
+result.clean_html                  # Noise-stripped HTML (same noise removed as clean_text)
+result.raw_text                    # Full body.innerText (unfiltered)
+result.html                        # Full raw HTML content
+result.links                       # Extracted links with url, text, title, rel
+result.metadata                    # Title, description, OG tags, etc.
+result.metadata['extractor']       # "readability" or "heuristic" — which extractor ran
+result.clean_markdown              # Markdown converted from clean_html (lazy — first access only)
 ```
 
 ## Use Cases
@@ -318,7 +320,8 @@ result.metadata
 #   "twitter_image"       => "https://...",
 #   "canonical"           => "https://...",
 #   "lang"                => "en",
-#   "charset"             => "UTF-8"
+#   "charset"             => "UTF-8",
+#   "extractor"           => "readability"  # or "heuristic"
 # }
 ```
 
@@ -473,16 +476,21 @@ RubyCrawl uses a single-process architecture:
 ```
 RubyCrawl (public API)
   ↓
-Browser (lib/rubycrawl/browser.rb)  ← Ferrum wrapper
+Browser (lib/rubycrawl/browser.rb)       ← Ferrum wrapper
   ↓
-Ferrum::Browser                     ← Chrome DevTools Protocol (pure Ruby)
+Ferrum::Browser                          ← Chrome DevTools Protocol (pure Ruby)
   ↓
-Chromium                            ← headless browser
+Chromium                                 ← headless browser
+  ↓
+Readability.js → heuristic fallback      ← content extraction (inside browser)
 ```
 
 - Chrome launches once lazily and is reused across all crawls
 - Each crawl gets an isolated page context (own cookies/storage)
-- JS extraction runs inside the browser via `page.evaluate()`
+- Content extraction runs inside the browser via `page.evaluate()`:
+  - **Primary**: Mozilla Readability.js — article-quality extraction for blogs, docs, news
+  - **Fallback**: link-density heuristic — covers marketing pages, homepages, SPAs
+- `result.metadata['extractor']` tells you which path was used (`"readability"` or `"heuristic"`)
 - No separate processes, no HTTP boundary, no Node.js
 
 ## Performance
@@ -528,7 +536,9 @@ The gem is available as open source under the terms of the [MIT License](LICENSE
 
 Built with [Ferrum](https://github.com/rubycdp/ferrum) — pure Ruby Chrome DevTools Protocol client.
 
-Powered by [reverse_markdown](https://github.com/xijo/reverse_markdown) for GitHub-flavored Markdown conversion.
+Content extraction powered by [Mozilla Readability.js](https://github.com/mozilla/readability) — the algorithm behind Firefox Reader View.
+
+Markdown conversion powered by [reverse_markdown](https://github.com/xijo/reverse_markdown) for GitHub-flavored output.
 
 ## Support
 
