@@ -32,6 +32,7 @@ Chromium                           ← headless browser (managed by Ferrum)
 ```
 
 **Why Ferrum over Node.js/Playwright?**
+
 - Pure Ruby — deploys like any other gem, no npm/Node required
 - Same Chrome DevTools Protocol under the hood — identical rendering quality
 - One runtime to debug instead of two
@@ -50,6 +51,9 @@ rubycrawl/
 │       ├── errors.rb                 # Exception hierarchy
 │       ├── helpers.rb                # URL validation, payload building, error mapping
 │       ├── browser.rb                # Ferrum wrapper — all browser interaction
+│       ├── browser/
+│       │   ├── extraction.rb         # JS extraction constants (metadata, links, content)
+│       │   └── readability.js        # Mozilla Readability.js v0.6.0 (vendored)
 │       ├── url_normalizer.rb         # URL normalization, deduplication, tracking param removal
 │       ├── markdown_converter.rb     # HTML → Markdown (reverse_markdown, lazy)
 │       ├── result.rb                 # Result object with lazy clean_markdown
@@ -58,9 +62,14 @@ rubycrawl/
 │       └── tasks/
 │           └── install.rake          # `rake rubycrawl:install`
 ├── spec/
-│   ├── rubycrawl_spec.rb             # RSpec tests
+│   ├── rubycrawl_spec.rb             # Unit + integration tests
+│   ├── browser_integration_spec.rb   # Browser integration tests (data: URLs, no network)
+│   ├── url_normalizer_spec.rb        # UrlNormalizer unit tests
+│   ├── site_crawler_spec.rb          # SiteCrawler unit tests
 │   └── spec_helper.rb
 ├── .github/
+│   ├── workflows/
+│   │   └── ci.yml                    # GitHub Actions CI (RuboCop + RSpec)
 │   └── copilot-instructions.md
 ├── CLAUDE.md                         # This file
 ├── README.md                         # User-facing documentation
@@ -81,6 +90,7 @@ RubyCrawl.configure(**defaults)
 ```
 
 Configuration options:
+
 - `wait_until` — `:load` (default), `:networkidle`, `:domcontentloaded`
 - `block_resources` — true/false (blocks images/fonts/CSS, default: nil)
 - `max_attempts` — retry count (default: 3)
@@ -89,6 +99,7 @@ Configuration options:
 ### Browser (`lib/rubycrawl/browser.rb`)
 
 The core of the gem. Wraps Ferrum and owns all browser interaction:
+
 - Launches a single `Ferrum::Browser` instance (singleton, lazy)
 - Creates isolated page contexts per crawl (or reuses session contexts)
 - Runs JS extraction via `page.evaluate()` — metadata, links, raw text, clean content
@@ -96,28 +107,31 @@ The core of the gem. Wraps Ferrum and owns all browser interaction:
 - Maps Ferrum exceptions to rubycrawl's error hierarchy
 
 **Content extraction JS constants** live in `lib/rubycrawl/browser/extraction.rb`:
+
 - `EXTRACT_METADATA_JS` — OG tags, Twitter cards, title, description, canonical, lang
 - `EXTRACT_LINKS_JS` — all `a[href]` with url/text/title/rel
 - `EXTRACT_RAW_TEXT_JS` — `body.innerText` as unfiltered plain text
-- `EXTRACT_CONTENT_JS` — noise-stripping (removes nav/header/footer/aside + link-density heuristic), returns `{ cleanHtml }`
+- `EXTRACT_CONTENT_JS` — content extraction: Mozilla Readability.js (primary, article pages) with link-density heuristic fallback (nav-heavy/sparse pages). Returns `{ cleanHtml, extractor }` where `extractor` is `"readability"` or `"heuristic"`. Readability.js source is embedded inside the same IIFE so both share the same `Runtime.evaluate` scope.
 
 All constants are IIFEs (`(() => { ... })()`) — required because `Ferrum#page.evaluate` evaluates an expression, not a function definition.
 
 ### Result (`lib/rubycrawl/result.rb`)
 
 Immutable value object returned from every crawl:
+
 - `result.html` — full raw HTML
 - `result.raw_text` — unfiltered `body.innerText`
 - `result.clean_text` — noise-stripped plain text (ready for RAG chunking)
 - `result.clean_html` — noise-stripped HTML
 - `result.clean_markdown` — lazy: computed from `clean_html` on first access
 - `result.links` — array of `{ 'url', 'text', 'title', 'rel' }` hashes
-- `result.metadata` — status, final_url, og_*, twitter_*, canonical, lang, charset
+- `result.metadata` — status, final*url, og*\_, twitter\_\_, canonical, lang, charset
 - `result.final_url` — shortcut for `metadata['final_url']`
 
 ### SiteCrawler (`lib/rubycrawl/site_crawler.rb`)
 
 BFS multi-page crawler:
+
 - Takes a `RubyCrawl` client instance and options
 - Yields `SiteCrawler::PageResult` (same interface as `Result` + `depth` attribute)
 - Each page gets its own isolated browser context via `Browser#crawl`
@@ -140,6 +154,7 @@ BFS multi-page crawler:
 ### Adding a new extraction field
 
 1. Add the JS to the relevant constant in `browser.rb`:
+
    ```ruby
    EXTRACT_METADATA_JS = <<~JS
      (() => {
@@ -149,11 +164,11 @@ BFS multi-page crawler:
    JS
    ```
 
-2. Map it in `browser.rb`'s `extract_all` method
+2. Map it in `Browser#extract` in `browser.rb`
 
 3. Add `attr_reader` to `Result` and `SiteCrawler::PageResult`
 
-4. Update `Result#to_h` and `Result#initialize`
+4. Update `Result#initialize`
 
 5. Add tests and update README
 
@@ -168,14 +183,13 @@ BFS multi-page crawler:
 
 ## Testing
 
-- **Unit tests**: Mock `Ferrum::Browser`/`Ferrum::Page` — fast, no network, no browser
-- **Integration tests**: Real browser, tagged `:integration`, only run with `INTEGRATION=1`
-- Test error paths thoroughly — errors are first-class citizens
-- `UrlNormalizer` and `SiteCrawler` should have dedicated unit tests
+- **Unit tests** (`rubycrawl_spec.rb`, `url_normalizer_spec.rb`, `site_crawler_spec.rb`) — mock the browser, fast, no Chrome needed
+- **Browser integration tests** (`browser_integration_spec.rb`) — real Chrome, use `data:` URLs (no network, works offline and on CI)
+- All tests run together — no flags needed
 
 ```bash
-bundle exec rspec                        # unit tests only
-INTEGRATION=1 bundle exec rspec         # all tests including browser
+bundle exec rspec          # runs all tests (unit + browser integration)
+bundle exec rubocop        # lint
 ```
 
 ---
@@ -192,6 +206,7 @@ StandardError
 ```
 
 Map Ferrum exceptions in `browser.rb`:
+
 - `Ferrum::TimeoutError` → `RubyCrawl::TimeoutError`
 - `Ferrum::StatusError` → `RubyCrawl::NavigationError`
 - `Ferrum::NodeNotFoundError` → `RubyCrawl::NavigationError`
@@ -226,28 +241,33 @@ Map Ferrum exceptions in `browser.rb`:
 ## Roadmap
 
 ### v0.2.0 — Ferrum migration ✅ (released)
+
 - Dropped Node.js/Playwright entirely
 - Pure Ruby via Ferrum
 - `clean_text` now derived from `clean_html` (consistent with `clean_markdown`)
 - Updated Rails install task (no npm required)
 
 ### v0.3.0 — Content quality
+
 - Replace link-density heuristic with Mozilla Readability.js (via `page.evaluate`)
 - `result.chunks` — split `clean_text` into overlapping chunks for embedding
 - `result.structured` — extract tables, code blocks, headings as structured data
 
 ### v0.4.0 — Performance
+
 - HTTP-only mode via Mechanize (`mode: :http`) for static/non-JS sites
 - Configurable `crawl_delay` between requests
 - Parallel page loading in `crawl_site` via thread pool
 
 ### v0.5.0 — Production features
+
 - `robots.txt` parsing and respect
 - Rate limiting per domain
 - Custom `User-Agent` and request headers
 - Proxy support
 
 ### v1.0.0 — Stable
+
 - Production battle-tested
 - Full documentation and benchmarks
 - Migration guide from Mechanize/Kimurai
@@ -272,11 +292,8 @@ Map Ferrum exceptions in `browser.rb`:
 # Setup
 bin/setup
 
-# Run unit tests
+# Run all tests
 bundle exec rspec
-
-# Run all tests (requires Chrome)
-INTEGRATION=1 bundle exec rspec
 
 # Install Chrome for Ferrum
 bundle exec rake rubycrawl:install

@@ -1,6 +1,7 @@
 # RubyCrawl 🎭
 
 [![Gem Version](https://badge.fury.io/rb/rubycrawl.svg)](https://rubygems.org/gems/rubycrawl)
+[![CI](https://github.com/craft-wise/rubycrawl/actions/workflows/ci.yml/badge.svg)](https://github.com/craft-wise/rubycrawl/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Ruby](https://img.shields.io/badge/ruby-%3E%3D%203.0-red.svg)](https://www.ruby-lang.org/)
 
@@ -507,11 +508,8 @@ git clone git@github.com:craft-wise/rubycrawl.git
 cd rubycrawl
 bin/setup
 
-# Run unit tests (no browser required)
+# Run all tests (Chrome required — installed as a gem dependency)
 bundle exec rspec
-
-# Run integration tests (requires Chrome)
-INTEGRATION=1 bundle exec rspec
 
 # Manual testing
 bin/console
