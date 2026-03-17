@@ -524,8 +524,23 @@ Readability.js → heuristic fallback      ← content extraction (inside browse
 
 - **Resource blocking**: Keep `block_resources: true` (default: nil) to skip images/fonts/CSS for 2-3x faster crawls
 - **Wait strategy**: Use `wait_until: "load"` for static sites, `"networkidle"` for SPAs
-- **Concurrency**: Use background jobs (Sidekiq, GoodJob, etc.) for parallel crawling
 - **Browser reuse**: The first crawl is slower (~2s) due to Chrome launch; subsequent crawls are much faster (~200-500ms)
+
+### Parallelism
+
+RubyCrawl does not support parallel page loading within a single process — Ferrum uses one Chrome instance and concurrent access is not thread-safe.
+
+The recommended pattern is **job-level parallelism**: each background job gets its own `RubyCrawl` instance and Chrome process, with natural rate limiting via your job queue's concurrency setting:
+
+```ruby
+# Enqueue independent crawls — each job runs its own Chrome
+urls.each { |url| CrawlJob.perform_later(url) }
+
+# Control concurrency via your queue worker config (Sidekiq, GoodJob, etc.)
+# e.g. Sidekiq concurrency: 3 → 3 Chrome processes crawling in parallel
+```
+
+This also works naturally with `respect_robots_txt: true` — each job respects Crawl-delay independently.
 
 ## Development
 

@@ -274,7 +274,6 @@ Map Ferrum exceptions in `browser.rb`:
 
 - Custom `User-Agent` and request headers
 - Proxy support
-- Parallel page loading in `crawl_site` via thread pool
 
 ### v1.0.0 — Stable
 

@@ -6,6 +6,23 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [0.4.0] - 2026-03-17
+
+### Added
+- **`respect_robots_txt` option** — opt-in robots.txt compliance for `crawl_site` and `RubyCrawl.configure` (default: `false`). When enabled:
+  - Fetches `robots.txt` once at the start of each site crawl
+  - Skips URLs disallowed for `User-agent: *` (logs a warning per skipped URL)
+  - Automatically sleeps `Crawl-delay` seconds between pages when the site specifies it
+  - Fails open — if robots.txt is unreachable or missing, crawling proceeds normally
+- **`RobotsParser`** — built-in robots.txt parser with no extra gem dependency. Supports `Disallow`, `Allow` (takes precedence over Disallow), `Crawl-delay`, `*` wildcard, and `$` end-of-string anchor patterns.
+- **GitHub Actions CI** — RuboCop + RSpec matrix on Ruby 3.3 with Chrome installed via `browser-actions/setup-chrome`.
+- **100-test suite** — up from 77 tests, adding 18 new tests in `spec/robots_parser_spec.rb` and `spec/site_crawler_spec.rb`.
+
+### Changed
+- Rails initializer template now includes `respect_robots_txt` as a commented-out option.
+
+---
+
 ## [0.3.0] - 2026-03-17
 
 ### Added
