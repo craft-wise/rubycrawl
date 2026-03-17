@@ -250,39 +250,6 @@ Map Ferrum exceptions in `browser.rb`:
 
 ---
 
-## Roadmap
-
-### v0.2.0 — Ferrum migration ✅ (released)
-
-- Dropped Node.js/Playwright entirely
-- Pure Ruby via Ferrum
-- `clean_text` now derived from `clean_html` (consistent with `clean_markdown`)
-- Updated Rails install task (no npm required)
-
-### v0.3.0 — Content quality + tests ✅ (released)
-
-- Mozilla Readability.js extraction (primary) + heuristic fallback
-- 77-test suite: browser integration, UrlNormalizer, SiteCrawler unit tests
-- GitHub Actions CI, CHANGELOG.md
-
-### v0.4.0 — Reliability ✅ (current)
-
-- `robots.txt` support via `respect_robots_txt: true` — Disallow rules + Crawl-delay
-- `RobotsParser` — minimal built-in parser, no extra dependency
-
-### v0.5.0 — Production features
-
-- Custom `User-Agent` and request headers
-- Proxy support
-
-### v1.0.0 — Stable
-
-- Production battle-tested
-- Full documentation and benchmarks
-- Migration guide from Mechanize/Kimurai
-
----
-
 ## Code Review Checklist
 
 - [ ] Public API is clean and Ruby-idiomatic?
