@@ -3,7 +3,8 @@ AllCops:
   TargetRubyVersion: 3.0
   SuggestExtensions: false
   Exclude:
-    - 'bin/**/*'
+    - "bin/**/*"
+    - "vendor/**/*"
 
 # ── Layout ────────────────────────────────────────────────────────────────────
 
@@ -31,5 +32,10 @@ Metrics/ParameterLists:
 # Rake tasks and RSpec describe blocks are inherently long.
 Metrics/BlockLength:
   Exclude:
-    - 'lib/**/*.rake'
-    - 'spec/**/*_spec.rb'
+    - "lib/**/*.rake"
+    - "spec/**/*_spec.rb"
+
+# Empty blocks in specs are intentional (discarding yielded values).
+Lint/EmptyBlock:
+  Exclude:
+    - "spec/**/*_spec.rb"

@@ -42,7 +42,7 @@ RSpec.describe RubyCrawl::SiteCrawler do
 
     it 'follows links found on the start page' do
       allow(client).to receive(:crawl).with('https://example.com/', any_args)
-                                      .and_return(make_result(url: 'https://example.com/',
+                                      .and_return(make_result(url:   'https://example.com/',
                                                               links: ['https://example.com/about']))
       allow(client).to receive(:crawl).with('https://example.com/about', any_args)
                                       .and_return(make_result(url: 'https://example.com/about'))
@@ -56,7 +56,7 @@ RSpec.describe RubyCrawl::SiteCrawler do
     it 'does not visit the same URL twice' do
       # Start page links back to itself
       allow(client).to receive(:crawl).with('https://example.com/', any_args)
-                                      .and_return(make_result(url: 'https://example.com/',
+                                      .and_return(make_result(url:   'https://example.com/',
                                                               links: ['https://example.com/']))
 
       expect(client).to receive(:crawl).once
@@ -82,10 +82,10 @@ RSpec.describe RubyCrawl::SiteCrawler do
     it 'respects max_depth limit' do
       # depth 0 → links to depth 1 → links to depth 2 (should not be followed)
       allow(client).to receive(:crawl).with('https://example.com/', any_args)
-                                      .and_return(make_result(url: 'https://example.com/',
+                                      .and_return(make_result(url:   'https://example.com/',
                                                               links: ['https://example.com/level1']))
       allow(client).to receive(:crawl).with('https://example.com/level1', any_args)
-                                      .and_return(make_result(url: 'https://example.com/level1',
+                                      .and_return(make_result(url:   'https://example.com/level1',
                                                               links: ['https://example.com/level2']))
 
       results = []
@@ -98,7 +98,7 @@ RSpec.describe RubyCrawl::SiteCrawler do
 
     it 'skips links to other hosts when same_host_only: true (default)' do
       allow(client).to receive(:crawl).with('https://example.com/', any_args)
-                                      .and_return(make_result(url: 'https://example.com/',
+                                      .and_return(make_result(url:   'https://example.com/',
                                                               links: ['https://other.com/page']))
 
       expect(client).to receive(:crawl).once
@@ -107,7 +107,7 @@ RSpec.describe RubyCrawl::SiteCrawler do
 
     it 'follows links to other hosts when same_host_only: false' do
       allow(client).to receive(:crawl).with('https://example.com/', any_args)
-                                      .and_return(make_result(url: 'https://example.com/',
+                                      .and_return(make_result(url:   'https://example.com/',
                                                               links: ['https://other.com/page']))
       allow(client).to receive(:crawl).with('https://other.com/page', any_args)
                                       .and_return(make_result(url: 'https://other.com/page'))
@@ -120,7 +120,7 @@ RSpec.describe RubyCrawl::SiteCrawler do
 
     it 'skips a page that raises a crawl error and continues' do
       allow(client).to receive(:crawl).with('https://example.com/', any_args)
-                                      .and_return(make_result(url: 'https://example.com/',
+                                      .and_return(make_result(url:   'https://example.com/',
                                                               links: ['https://example.com/about',
                                                                       'https://example.com/contact']))
       allow(client).to receive(:crawl).with('https://example.com/about', any_args)
@@ -137,8 +137,6 @@ RSpec.describe RubyCrawl::SiteCrawler do
 
     it 'returns the number of pages crawled' do
       allow(client).to receive(:crawl).and_return(make_result(url: 'https://example.com/'))
-
-      count = nil
       crawler = described_class.new(client)
       # We can't capture the return value directly via the public API since crawl
       # yields; access via the private method count returned from process_queue.
