@@ -135,6 +135,76 @@ RSpec.describe RubyCrawl::SiteCrawler do
       expect(results.map(&:url)).not_to include('https://example.com/about')
     end
 
+    context 'with respect_robots_txt: true' do
+      let(:robots) { instance_double(RubyCrawl::RobotsParser, crawl_delay: nil) }
+
+      before do
+        allow(RubyCrawl::RobotsParser).to receive(:fetch).and_return(robots)
+      end
+
+      it 'fetches robots.txt once at the start of the crawl' do
+        allow(robots).to receive(:allowed?).and_return(true)
+        allow(client).to receive(:crawl).and_return(make_result(url: 'https://example.com/'))
+
+        described_class.new(client, respect_robots_txt: true).crawl('https://example.com') { |_r| }
+
+        expect(RubyCrawl::RobotsParser).to have_received(:fetch).once
+      end
+
+      it 'skips links disallowed by robots.txt' do
+        allow(client).to receive(:crawl).with('https://example.com/', any_args)
+                                        .and_return(make_result(url:   'https://example.com/',
+                                                                links: ['https://example.com/allowed',
+                                                                        'https://example.com/blocked']))
+        allow(client).to receive(:crawl).with('https://example.com/allowed', any_args)
+                                        .and_return(make_result(url: 'https://example.com/allowed'))
+        allow(robots).to receive(:allowed?).with('https://example.com/allowed').and_return(true)
+        allow(robots).to receive(:allowed?).with('https://example.com/blocked').and_return(false)
+
+        results = []
+        described_class.new(client, respect_robots_txt: true).crawl('https://example.com') { |r| results << r }
+
+        expect(results.map(&:url)).to include('https://example.com/allowed')
+        expect(results.map(&:url)).not_to include('https://example.com/blocked')
+        expect(client).not_to have_received(:crawl).with('https://example.com/blocked', any_args)
+      end
+
+      it 'sleeps crawl_delay between pages when robots.txt specifies one' do
+        allow(robots).to receive(:crawl_delay).and_return(1)
+        allow(robots).to receive(:allowed?).and_return(true)
+        allow(client).to receive(:crawl).with('https://example.com/', any_args)
+                                        .and_return(make_result(url:   'https://example.com/',
+                                                                links: ['https://example.com/page2']))
+        allow(client).to receive(:crawl).with('https://example.com/page2', any_args)
+                                        .and_return(make_result(url: 'https://example.com/page2'))
+        allow_any_instance_of(described_class).to receive(:sleep)
+
+        crawler = described_class.new(client, respect_robots_txt: true)
+        crawler.crawl('https://example.com') { |_r| }
+
+        expect(crawler).to have_received(:sleep).with(1).once
+      end
+
+      it 'does not sleep when robots.txt has no Crawl-delay' do
+        allow(robots).to receive(:allowed?).and_return(true)
+        allow(client).to receive(:crawl).and_return(make_result(url: 'https://example.com/'))
+        allow(described_class).to receive(:sleep)
+
+        described_class.new(client, respect_robots_txt: true).crawl('https://example.com') { |_r| }
+
+        expect(described_class).not_to have_received(:sleep)
+      end
+    end
+
+    it 'does not fetch robots.txt when respect_robots_txt is false (default)' do
+      allow(RubyCrawl::RobotsParser).to receive(:fetch)
+      allow(client).to receive(:crawl).and_return(make_result(url: 'https://example.com/'))
+
+      described_class.new(client).crawl('https://example.com') { |_r| }
+
+      expect(RubyCrawl::RobotsParser).not_to have_received(:fetch)
+    end
+
     it 'returns the number of pages crawled' do
       allow(client).to receive(:crawl).and_return(make_result(url: 'https://example.com/'))
       crawler = described_class.new(client)

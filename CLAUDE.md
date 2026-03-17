@@ -54,6 +54,7 @@ rubycrawl/
 │       ├── browser/
 │       │   ├── extraction.rb         # JS extraction constants (metadata, links, content)
 │       │   └── readability.js        # Mozilla Readability.js v0.6.0 (vendored)
+│       ├── robots_parser.rb          # robots.txt fetcher and parser
 │       ├── url_normalizer.rb         # URL normalization, deduplication, tracking param removal
 │       ├── markdown_converter.rb     # HTML → Markdown (reverse_markdown, lazy)
 │       ├── result.rb                 # Result object with lazy clean_markdown
@@ -91,10 +92,11 @@ RubyCrawl.configure(**defaults)
 
 Configuration options:
 
-- `wait_until` — `:load` (default), `:networkidle`, `:domcontentloaded`
+- `wait_until` — `"load"`, `"networkidle"`, `"domcontentloaded"` (default: nil = Ferrum default)
 - `block_resources` — true/false (blocks images/fonts/CSS, default: nil)
 - `max_attempts` — retry count (default: 3)
 - `timeout` — browser timeout in seconds (default: 30)
+- `respect_robots_txt` — honour robots.txt Disallow rules and Crawl-delay (default: false)
 
 ### Browser (`lib/rubycrawl/browser.rb`)
 
@@ -138,6 +140,16 @@ BFS multi-page crawler:
 - Deduplicates via `Set` of normalized URLs
 - Handles redirects: marks `final_url` as visited
 - Silently skips failed pages (logs warning), continues crawling
+- `respect_robots_txt: true` fetches robots.txt once, skips disallowed URLs, auto-sleeps `Crawl-delay`
+
+### RobotsParser (`lib/rubycrawl/robots_parser.rb`)
+
+Fetches and parses `robots.txt` for a site:
+
+- `RobotsParser.fetch(base_url)` — downloads via `Net::HTTP`, 5s timeout, fails open on error
+- `allowed?(url)` — checks `User-agent: *` Disallow/Allow rules; Allow takes precedence
+- `crawl_delay` — returns `Crawl-delay` value as Float, or nil
+- Supports `*` wildcard and `$` end-of-string anchor in rule patterns
 
 ### UrlNormalizer (`lib/rubycrawl/url_normalizer.rb`)
 
@@ -247,24 +259,22 @@ Map Ferrum exceptions in `browser.rb`:
 - `clean_text` now derived from `clean_html` (consistent with `clean_markdown`)
 - Updated Rails install task (no npm required)
 
-### v0.3.0 — Content quality
+### v0.3.0 — Content quality + tests ✅ (released)
 
-- Replace link-density heuristic with Mozilla Readability.js (via `page.evaluate`)
-- `result.chunks` — split `clean_text` into overlapping chunks for embedding
-- `result.structured` — extract tables, code blocks, headings as structured data
+- Mozilla Readability.js extraction (primary) + heuristic fallback
+- 77-test suite: browser integration, UrlNormalizer, SiteCrawler unit tests
+- GitHub Actions CI, CHANGELOG.md
 
-### v0.4.0 — Performance
+### v0.4.0 — Reliability ✅ (current)
 
-- HTTP-only mode via Mechanize (`mode: :http`) for static/non-JS sites
-- Configurable `crawl_delay` between requests
-- Parallel page loading in `crawl_site` via thread pool
+- `robots.txt` support via `respect_robots_txt: true` — Disallow rules + Crawl-delay
+- `RobotsParser` — minimal built-in parser, no extra dependency
 
 ### v0.5.0 — Production features
 
-- `robots.txt` parsing and respect
-- Rate limiting per domain
 - Custom `User-Agent` and request headers
 - Proxy support
+- Parallel page loading in `crawl_site` via thread pool
 
 ### v1.0.0 — Stable
 

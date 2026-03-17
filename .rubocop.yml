@@ -29,6 +29,16 @@ Metrics/MethodLength:
 Metrics/ParameterLists:
   Max: 8
 
+# Parsers and BFS queues have inherently higher complexity.
+Metrics/CyclomaticComplexity:
+  Max: 16
+
+Metrics/PerceivedComplexity:
+  Max: 16
+
+Metrics/AbcSize:
+  Max: 30
+
 # Rake tasks and RSpec describe blocks are inherently long.
 Metrics/BlockLength:
   Exclude:

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'set'
+require_relative 'robots_parser'
 
 class RubyCrawl
   # BFS crawler that follows links with deduplication.
@@ -46,7 +47,8 @@ class RubyCrawl
       @same_host_only = options.fetch(:same_host_only, true)
       @wait_until = options.fetch(:wait_until, nil)
       @block_resources = options.fetch(:block_resources, nil)
-      @max_attempts = options.fetch(:max_attempts, nil)
+      @max_attempts        = options.fetch(:max_attempts, nil)
+      @respect_robots_txt  = options.fetch(:respect_robots_txt, false)
       @visited = Set.new
       @queue = []
     end
@@ -58,6 +60,7 @@ class RubyCrawl
       raise ConfigurationError, "Invalid start URL: #{start_url}" unless normalized
 
       @base_url = normalized
+      @robots   = @respect_robots_txt ? RobotsParser.fetch(@base_url) : nil
       enqueue(normalized, 0)
       process_queue(&block)
     end
@@ -70,6 +73,8 @@ class RubyCrawl
       while (item = @queue.shift) && pages_crawled < @max_pages
         url, depth = item
         next if @visited.include?(url)
+
+        sleep(@robots.crawl_delay) if @robots&.crawl_delay && pages_crawled.positive?
 
         result = process_page(url, depth)
         next unless result
@@ -130,9 +135,18 @@ class RubyCrawl
         next unless normalized
         next if @visited.include?(normalized)
         next if @same_host_only && !UrlNormalizer.same_host?(normalized, @base_url)
+        next if robots_disallowed?(normalized)
 
         enqueue(normalized, depth)
       end
+    end
+
+    def robots_disallowed?(url)
+      return false unless @robots
+      return false if @robots.allowed?(url)
+
+      warn "[rubycrawl] Skipping #{url} (disallowed by robots.txt)"
+      true
     end
 
     def enqueue(url, depth)

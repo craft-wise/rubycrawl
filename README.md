@@ -190,13 +190,38 @@ puts "Indexed #{pages_crawled} pages"
 
 #### Multi-Page Options
 
-| Option            | Default   | Description                          |
-| ----------------- | --------- | ------------------------------------ |
-| `max_pages`       | 50        | Maximum number of pages to crawl     |
-| `max_depth`       | 3         | Maximum link depth from start URL    |
-| `same_host_only`  | true      | Only follow links on the same domain |
-| `wait_until`      | inherited | Page load strategy                   |
-| `block_resources` | inherited | Block images/fonts/CSS               |
+| Option                 | Default   | Description                                         |
+| ---------------------- | --------- | --------------------------------------------------- |
+| `max_pages`            | 50        | Maximum number of pages to crawl                    |
+| `max_depth`            | 3         | Maximum link depth from start URL                   |
+| `same_host_only`       | true      | Only follow links on the same domain                |
+| `wait_until`           | inherited | Page load strategy                                  |
+| `block_resources`      | inherited | Block images/fonts/CSS                              |
+| `respect_robots_txt`   | false     | Honour robots.txt rules and auto-sleep `Crawl-delay`|
+
+#### robots.txt Support
+
+When `respect_robots_txt: true`, RubyCrawl fetches `robots.txt` once at the start of the crawl and:
+
+- Skips any URL disallowed for `User-agent: *`
+- Automatically sleeps the `Crawl-delay` specified in robots.txt between pages
+
+```ruby
+RubyCrawl.crawl_site("https://example.com",
+  respect_robots_txt: true,
+  max_pages: 100
+) do |page|
+  puts page.url
+end
+```
+
+Or enable globally:
+
+```ruby
+RubyCrawl.configure(respect_robots_txt: true)
+```
+
+If robots.txt is unreachable or missing, crawling proceeds normally (fail open).
 
 #### Page Result Object
 
@@ -248,11 +273,12 @@ result = RubyCrawl.crawl(
 
 | Option            | Values                                                      | Default | Description                                         |
 | ----------------- | ----------------------------------------------------------- | ------- | --------------------------------------------------- |
-| `wait_until`      | `"load"`, `"domcontentloaded"`, `"networkidle"`, `"commit"` | `nil`   | When to consider page loaded (nil = Ferrum default) |
-| `block_resources` | `true`, `false`                                             | `nil`   | Block images, fonts, CSS, media for faster crawls   |
-| `max_attempts`    | Integer                                                     | `3`     | Total number of attempts (including the first)      |
-| `timeout`         | Integer (seconds)                                           | `30`    | Browser navigation timeout                          |
-| `headless`        | `true`, `false`                                             | `true`  | Run Chrome headlessly                               |
+| `wait_until`           | `"load"`, `"domcontentloaded"`, `"networkidle"`, `"commit"` | `nil`   | When to consider page loaded (nil = Ferrum default) |
+| `block_resources`      | `true`, `false`                                             | `nil`   | Block images, fonts, CSS, media for faster crawls   |
+| `max_attempts`         | Integer                                                     | `3`     | Total number of attempts (including the first)      |
+| `timeout`              | Integer (seconds)                                           | `30`    | Browser navigation timeout                          |
+| `headless`             | `true`, `false`                                             | `true`  | Run Chrome headlessly                               |
+| `respect_robots_txt`   | `true`, `false`                                             | `false` | Honour robots.txt rules and auto-sleep Crawl-delay  |
 
 **Wait strategies explained:**
 

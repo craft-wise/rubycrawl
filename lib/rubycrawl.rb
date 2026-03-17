@@ -81,7 +81,8 @@ class RubyCrawl
     @max_attempts    = options.fetch(:max_attempts, 3)
     @timeout         = options.fetch(:timeout, 30)
     @headless        = options.fetch(:headless, true)
-    @browser_options = options.fetch(:browser_options, {})
+    @browser_options    = options.fetch(:browser_options, {})
+    @respect_robots_txt = options.fetch(:respect_robots_txt, false)
   end
 
   def with_retries(max_attempts)
@@ -101,12 +102,13 @@ class RubyCrawl
 
   def build_crawler_options(options)
     {
-      max_pages:       options.fetch(:max_pages, 50),
-      max_depth:       options.fetch(:max_depth, 3),
-      same_host_only:  options.fetch(:same_host_only, true),
-      wait_until:      options.fetch(:wait_until, @wait_until),
-      block_resources: options.fetch(:block_resources, @block_resources),
-      max_attempts:    options.fetch(:max_attempts, @max_attempts)
+      max_pages:          options.fetch(:max_pages, 50),
+      max_depth:          options.fetch(:max_depth, 3),
+      same_host_only:     options.fetch(:same_host_only, true),
+      wait_until:         options.fetch(:wait_until, @wait_until),
+      block_resources:    options.fetch(:block_resources, @block_resources),
+      max_attempts:       options.fetch(:max_attempts, @max_attempts),
+      respect_robots_txt: options.fetch(:respect_robots_txt, @respect_robots_txt)
     }
   end
 end

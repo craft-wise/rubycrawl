@@ -27,11 +27,12 @@ namespace :rubycrawl do
 
           # RubyCrawl Configuration
           RubyCrawl.configure(
-            # wait_until: "load",       # "load", "domcontentloaded", "networkidle"
-            # block_resources: true,    # block images/fonts/CSS/media for speed
-            # max_attempts: 3,          # retry count with exponential backoff
-            # timeout: 30,             # browser navigation timeout in seconds
-            # headless: true,          # set false to see the browser (debugging)
+            # wait_until: "load",             # "load", "domcontentloaded", "networkidle"
+            # block_resources: true,          # block images/fonts/CSS/media for speed
+            # max_attempts: 3,               # retry count with exponential backoff
+            # timeout: 30,                  # browser navigation timeout in seconds
+            # headless: true,              # set false to see the browser (debugging)
+            # respect_robots_txt: false,   # set true to honour robots.txt and Crawl-delay
           )
         RUBY
 
