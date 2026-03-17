@@ -59,7 +59,11 @@ HTML
 # Run with: INTEGRATION=1 bundle exec rspec spec/browser_integration_spec.rb
 RSpec.describe RubyCrawl::Browser, :integration do
   # One Chrome instance shared across all examples — launch is slow (~2s).
-  before(:context) { @browser = described_class.new(headless: true, timeout: 30) }
+  before(:context) do
+    opts = { headless: true, timeout: 60 }
+    opts[:browser_options] = { 'no-sandbox': nil } if ENV['BROWSER_NO_SANDBOX']
+    @browser = described_class.new(**opts)
+  end
 
   # Encode HTML as a data: URL so Ferrum can navigate to it without HTTP.
   def data_url(html)
