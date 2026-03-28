@@ -59,11 +59,14 @@ class RubyCrawl
       raise RubyCrawl::ServiceError, "Failed to launch browser: #{e.message}"
     end
 
+    # These flags are required in Docker/Linux environments and are safe on all platforms.
+    DEFAULT_BROWSER_OPTIONS = { "no-sandbox" => nil, "disable-dev-shm-usage" => nil }.freeze
+
     def launch_browser
       b = Ferrum::Browser.new(
         headless:        @headless,
         timeout:         @timeout,
-        browser_options: @browser_options
+        browser_options: DEFAULT_BROWSER_OPTIONS.merge(@browser_options)
       )
       at_exit do
         b.quit

@@ -6,6 +6,13 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [0.4.1] - 2026-03-28
+
+### Fixed
+- Chrome now launches correctly in Docker and Linux environments without manual configuration. `--no-sandbox` and `--disable-dev-shm-usage` flags are applied by default (safe on all platforms, required in Docker).
+
+---
+
 ## [0.4.0] - 2026-03-17
 
 ### Added
