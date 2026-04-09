@@ -66,7 +66,7 @@ result.metadata       # Title, description, OG tags, etc.
 ### Requirements
 
 - **Ruby** >= 3.0
-- **Chrome or Chromium** — managed automatically by Ferrum (downloaded on first use)
+- **Chrome or Chromium** — must be installed on the system (see [Install Chrome](#install-chrome))
 
 ### Add to Gemfile
 
@@ -82,7 +82,21 @@ bundle install
 
 ### Install Chrome
 
-Ferrum manages Chrome automatically. Run the install task to verify Chrome is available and generate a Rails initializer:
+Chrome or Chromium must be installed on your system — it is not bundled with the gem.
+
+**macOS:**
+```bash
+brew install --cask google-chrome
+```
+
+**Ubuntu / Debian / EC2:**
+```bash
+apt-get update && apt-get install -y chromium
+```
+
+**Download:** [google.com/chrome](https://www.google.com/chrome/)
+
+Once installed, run the install task to verify Chrome is in your PATH and generate a Rails initializer:
 
 ```bash
 bundle exec rake rubycrawl:install
@@ -92,8 +106,6 @@ This command:
 
 - ✅ Checks for Chrome/Chromium in your PATH
 - ✅ Creates a Rails initializer (if using Rails)
-
-**Note:** If Chrome is not in your PATH, install it via your system package manager or download from [google.com/chrome](https://www.google.com/chrome/).
 
 ## Quick Start
 
@@ -190,14 +202,14 @@ puts "Indexed #{pages_crawled} pages"
 
 #### Multi-Page Options
 
-| Option                 | Default   | Description                                         |
-| ---------------------- | --------- | --------------------------------------------------- |
-| `max_pages`            | 50        | Maximum number of pages to crawl                    |
-| `max_depth`            | 3         | Maximum link depth from start URL                   |
-| `same_host_only`       | true      | Only follow links on the same domain                |
-| `wait_until`           | inherited | Page load strategy                                  |
-| `block_resources`      | inherited | Block images/fonts/CSS                              |
-| `respect_robots_txt`   | false     | Honour robots.txt rules and auto-sleep `Crawl-delay`|
+| Option               | Default   | Description                                          |
+| -------------------- | --------- | ---------------------------------------------------- |
+| `max_pages`          | 50        | Maximum number of pages to crawl                     |
+| `max_depth`          | 3         | Maximum link depth from start URL                    |
+| `same_host_only`     | true      | Only follow links on the same domain                 |
+| `wait_until`         | inherited | Page load strategy                                   |
+| `block_resources`    | inherited | Block images/fonts/CSS                               |
+| `respect_robots_txt` | false     | Honour robots.txt rules and auto-sleep `Crawl-delay` |
 
 #### robots.txt Support
 
@@ -271,14 +283,14 @@ result = RubyCrawl.crawl(
 
 #### Configuration Options
 
-| Option            | Values                                                      | Default | Description                                         |
-| ----------------- | ----------------------------------------------------------- | ------- | --------------------------------------------------- |
-| `wait_until`           | `"load"`, `"domcontentloaded"`, `"networkidle"`, `"commit"` | `nil`   | When to consider page loaded (nil = Ferrum default) |
-| `block_resources`      | `true`, `false`                                             | `nil`   | Block images, fonts, CSS, media for faster crawls   |
-| `max_attempts`         | Integer                                                     | `3`     | Total number of attempts (including the first)      |
-| `timeout`              | Integer (seconds)                                           | `30`    | Browser navigation timeout                          |
-| `headless`             | `true`, `false`                                             | `true`  | Run Chrome headlessly                               |
-| `respect_robots_txt`   | `true`, `false`                                             | `false` | Honour robots.txt rules and auto-sleep Crawl-delay  |
+| Option               | Values                                                      | Default | Description                                         |
+| -------------------- | ----------------------------------------------------------- | ------- | --------------------------------------------------- |
+| `wait_until`         | `"load"`, `"domcontentloaded"`, `"networkidle"`, `"commit"` | `nil`   | When to consider page loaded (nil = Ferrum default) |
+| `block_resources`    | `true`, `false`                                             | `nil`   | Block images, fonts, CSS, media for faster crawls   |
+| `max_attempts`       | Integer                                                     | `3`     | Total number of attempts (including the first)      |
+| `timeout`            | Integer (seconds)                                           | `30`    | Browser navigation timeout                          |
+| `headless`           | `true`, `false`                                             | `true`  | Run Chrome headlessly                               |
+| `respect_robots_txt` | `true`, `false`                                             | `false` | Honour robots.txt rules and auto-sleep Crawl-delay  |
 
 **Wait strategies explained:**
 
@@ -469,16 +481,23 @@ end
    bundle exec rake rubycrawl:install
    ```
 
+### Linux / EC2
+
+```bash
+apt-get update -qq && \
+  apt-get install --no-install-recommends -y chromium && \
+  apt-get clean && rm -rf /var/lib/apt/lists/*
+```
+
 ### Docker Example
 
 ```dockerfile
 FROM ruby:3.2
 
-# Install Chrome
-RUN apt-get update && apt-get install -y \
-    chromium \
-    --no-install-recommends \
-    && rm -rf /var/lib/apt/lists/*
+# Install Chromium
+RUN apt-get update -qq && \
+    apt-get install --no-install-recommends -y chromium && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY Gemfile* ./
@@ -560,8 +579,6 @@ bin/console
 ```
 
 ## Contributing
-
-Contributions are welcome! Please read our [contribution guidelines](.github/copilot-instructions.md) first.
 
 - **Simplicity over cleverness**: Prefer clear, explicit code
 - **Stability over speed**: Correctness first, optimization second

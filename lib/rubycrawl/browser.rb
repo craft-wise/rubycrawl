@@ -11,6 +11,8 @@ class RubyCrawl
   # Browser (Chrome) is launched once lazily and reused across crawls.
   class Browser
     BLOCKED_RESOURCE_TYPES = %w[image media font stylesheet].freeze
+    # These flags are required in Docker/Linux environments and are safe on all platforms.
+    DEFAULT_BROWSER_OPTIONS = { 'no-sandbox' => nil, 'disable-dev-shm-usage' => nil }.freeze
 
     def initialize(timeout: 30, headless: true, browser_options: {})
       @timeout         = timeout
@@ -58,9 +60,6 @@ class RubyCrawl
     rescue ::Ferrum::Error => e
       raise RubyCrawl::ServiceError, "Failed to launch browser: #{e.message}"
     end
-
-    # These flags are required in Docker/Linux environments and are safe on all platforms.
-    DEFAULT_BROWSER_OPTIONS = { "no-sandbox" => nil, "disable-dev-shm-usage" => nil }.freeze
 
     def launch_browser
       b = Ferrum::Browser.new(
